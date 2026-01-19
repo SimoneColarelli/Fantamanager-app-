@@ -1,0 +1,22 @@
+{
+  "fantasquadre": [],
+  "giocatori": [
+    {
+      "squadra_id": null,
+      "spesa": 1,
+      "nome": "Martinez",
+      "fascia": null,
+      "dq": 0,
+      "scadenza_contratto": null,
+      "fine_prestito": null,
+      "in_serie_a": true,
+      "in_prestito_a": null,
+      "id": 1,
+      "data_acquisto": null,
+      "quotazione": null,
+      "valore_svincolo": null,
+      "inizio_prestito": null,
+      "convocato": false
+    }
+  ]
+}
