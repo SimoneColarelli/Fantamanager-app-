@@ -6,6 +6,12 @@ class Repository:
 
     def all(self):
         return self.session.query(self.model).all()
+    
+    def create(self, data: dict):
+        obj = self.model(**data)
+        self.session.add(obj)
+        self.session.commit()
+        return obj
 
     def create_empty(self):
         obj = self.model()
