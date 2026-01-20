@@ -4,7 +4,7 @@ from models import Giocatore, Fantasquadra
 from repository import Repository
 from table_model import EditableTableModel
 from constants import *
-from table_view import EditableTableView
+from editable_table_view import EditableTableView
 
 
 
