@@ -1,9 +1,11 @@
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QTableView
+from PySide6.QtWidgets import QMainWindow, QTabWidget
 from database import SessionLocal, engine
 from models import Giocatore, Fantasquadra
 from repository import Repository
 from table_model import EditableTableModel
 from constants import *
+from table_view import EditableTableView
+
 
 
 class MainWindow(QMainWindow):
@@ -21,7 +23,7 @@ class MainWindow(QMainWindow):
         g_repo = Repository(session, Giocatore, GIOCATORI_FIELDS)
         g_model = EditableTableModel(g_repo, GIOCATORI_FIELDS, GIOCATORI_HEADERS)
 
-        g_view = QTableView()
+        g_view = EditableTableView()
         g_view.setModel(g_model)
         g_view.clicked.connect(self._handle_click)
 
@@ -29,7 +31,7 @@ class MainWindow(QMainWindow):
         f_repo = Repository(session, Fantasquadra, FANTASQUADRE_FIELDS)
         f_model = EditableTableModel(f_repo, FANTASQUADRE_FIELDS, FANTASQUADRE_HEADERS)
 
-        f_view = QTableView()
+        f_view = EditableTableView()
         f_view.setModel(f_model)
         f_view.clicked.connect(self._handle_click)
 
