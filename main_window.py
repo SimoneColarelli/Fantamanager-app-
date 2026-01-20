@@ -41,9 +41,7 @@ class MainWindow(QMainWindow):
 
     def _handle_click(self, index):
         model = index.model()
-        if (
-            index.row() == model.rowCount() - 1
-            and index.column() == model.columnCount() - 1
-        ):
+        if index.row() == 0 and index.column() == model.columnCount() - 1:
             model.create_from_row()
+
 

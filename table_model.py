@@ -24,11 +24,11 @@ class EditableTableModel(QAbstractTableModel):
         self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
-        # +1 for creation row
+        # +1 for creation row (row 0)
         return len(self.rows) + 1
 
     def columnCount(self, parent=QModelIndex()):
-        return len(self.fields) + 1  # + button column
+        return len(self.fields) + 1
 
     # ---------- DATA ----------
 
@@ -39,8 +39,8 @@ class EditableTableModel(QAbstractTableModel):
         row = index.row()
         col = index.column()
 
-        # CREATION ROW
-        if row == len(self.rows):
+        # ─── CREATION ROW (row 0) ─────────────────────────
+        if row == 0:
             if col == len(self.fields):
                 if role == Qt.ItemDataRole.DisplayRole:
                     return "➕"
@@ -60,8 +60,9 @@ class EditableTableModel(QAbstractTableModel):
                 return self.new_row[field]
             return None
 
-        # NORMAL ROWS
-        obj = self.rows[row]
+        # ─── NORMAL ROWS (offset -1) ─────────────────────
+        obj = self.rows[row - 1]
+
         if col < len(self.fields):
             field = self.fields[col]
             if role in (
@@ -82,7 +83,7 @@ class EditableTableModel(QAbstractTableModel):
         col = index.column()
 
         # CREATION ROW
-        if row == len(self.rows):
+        if row == 0:
             if col < len(self.fields):
                 field = self.fields[col]
                 self.new_row[field] = value
@@ -91,7 +92,7 @@ class EditableTableModel(QAbstractTableModel):
             return False
 
         # NORMAL ROW
-        obj = self.rows[row]
+        obj = self.rows[row - 1]
         field = self.fields[col]
         setattr(obj, field, value)
         self.repo.session.commit()
@@ -104,7 +105,8 @@ class EditableTableModel(QAbstractTableModel):
         row = index.row()
         col = index.column()
 
-        if row == len(self.rows):
+        # CREATION ROW
+        if row == 0:
             if col == len(self.fields):
                 return (
                     Qt.ItemFlag.ItemIsEnabled
@@ -117,6 +119,7 @@ class EditableTableModel(QAbstractTableModel):
                 | Qt.ItemFlag.ItemIsEditable
             )
 
+        # NORMAL ROWS
         if col < len(self.fields):
             return (
                 Qt.ItemFlag.ItemIsSelectable
