@@ -3,6 +3,9 @@ from PySide6.QtCore import (
     Qt,
     QModelIndex
 )
+from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
+
 
 
 class EditableTableModel(QAbstractTableModel):
@@ -11,10 +14,8 @@ class EditableTableModel(QAbstractTableModel):
         self.repo = repository
         self.fields = fields
         self.headers = headers + [""]  # colonna +
-        self.refresh()
-
-        # creation row buffer
         self.new_row = {f: "" for f in self.fields}
+        self.refresh()
 
     # ---------- BASIC ----------
 
@@ -24,8 +25,7 @@ class EditableTableModel(QAbstractTableModel):
         self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
-        # +1 for creation row (row 0)
-        return len(self.rows) + 1
+        return len(self.rows) + 1  # creation row
 
     def columnCount(self, parent=QModelIndex()):
         return len(self.fields) + 1
@@ -41,26 +41,48 @@ class EditableTableModel(QAbstractTableModel):
 
         # ─── CREATION ROW (row 0) ─────────────────────────
         if row == 0:
+            # ➕ button
             if col == len(self.fields):
-                if role == Qt.ItemDataRole.DisplayRole:
-                    return "➕"
+
+                if role == Qt.ItemDataRole.DisplayRole and self._can_create():
+                    return "➕" 
+
                 if role == Qt.ItemDataRole.ForegroundRole:
                     return (
-                        Qt.GlobalColor.darkGreen
+                        QColor(0, 255, 0)
                         if self._can_create()
-                        else Qt.GlobalColor.gray
+                        else QColor(160, 160, 160)
                     )
+
+                if role == Qt.ItemDataRole.FontRole and self._can_create():
+                    font = QFont()
+                    font.setBold(True)
+                    return font
+
                 return None
 
+
             field = self.fields[col]
+            value = self.new_row[field]
+
+            # placeholder
+            if value == "":
+                if role == Qt.ItemDataRole.DisplayRole:
+                    return f"nuovo {field.replace('_', ' ')}"
+                if role == Qt.ItemDataRole.ForegroundRole:
+                    return QColor(160, 160, 160)
+                return None
+
+            # real value
             if role in (
                 Qt.ItemDataRole.DisplayRole,
                 Qt.ItemDataRole.EditRole,
             ):
-                return self.new_row[field]
+                return value
+
             return None
 
-        # ─── NORMAL ROWS (offset -1) ─────────────────────
+        # ─── NORMAL ROWS ─────────────────────────────────
         obj = self.rows[row - 1]
 
         if col < len(self.fields):
@@ -83,13 +105,10 @@ class EditableTableModel(QAbstractTableModel):
         col = index.column()
 
         # CREATION ROW
-        if row == 0:
-            if col < len(self.fields):
-                field = self.fields[col]
-                self.new_row[field] = value
-                self.dataChanged.emit(index, index)
-                return True
-            return False
+        if row == 0 and col < len(self.fields):
+            self.new_row[self.fields[col]] = value
+            self.dataChanged.emit(index, index)
+            return True
 
         # NORMAL ROW
         obj = self.rows[row - 1]
@@ -105,7 +124,6 @@ class EditableTableModel(QAbstractTableModel):
         row = index.row()
         col = index.column()
 
-        # CREATION ROW
         if row == 0:
             if col == len(self.fields):
                 return (
@@ -119,7 +137,6 @@ class EditableTableModel(QAbstractTableModel):
                 | Qt.ItemFlag.ItemIsEditable
             )
 
-        # NORMAL ROWS
         if col < len(self.fields):
             return (
                 Qt.ItemFlag.ItemIsSelectable
@@ -147,7 +164,6 @@ class EditableTableModel(QAbstractTableModel):
     def create_from_row(self):
         if not self._can_create():
             return
-
         self.repo.create(self.new_row)
         self.new_row = {f: "" for f in self.fields}
         self.refresh()
