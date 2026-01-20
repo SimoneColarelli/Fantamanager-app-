@@ -1,56 +1,36 @@
-from PySide6.QtWidgets import (
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QTabWidget,
-    QTableView,
-)
+from PySide6.QtWidgets import QMainWindow, QTabWidget, QTableView
+from database import SessionLocal, engine
+from models import Giocatore, Fantasquadra
+from repository import Repository
 from table_model import EditableTableModel
-from dummy_data import (
-    GIOCATORI_HEADERS,
-    GIOCATORI_DATA,
-    FANTASQUADRE_HEADERS,
-    FANTASQUADRE_DATA,
-)
+from constants import *
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-
-        self.setWindowTitle("Fantamanager – Phase 1")
+        self.setWindowTitle("Fantamanager – Phase 2")
         self.resize(1000, 600)
+
+        Giocatore.metadata.create_all(engine)
+
+        session = SessionLocal()
 
         self.tabs = QTabWidget()
 
-        # --- Giocatori ---
-        self.giocatori_view = QTableView()
-        self.giocatori_model = EditableTableModel(
-            GIOCATORI_DATA,
-            GIOCATORI_HEADERS
-        )
-        self.giocatori_view.setModel(self.giocatori_model)
+        g_repo = Repository(session, Giocatore, GIOCATORI_FIELDS)
+        g_model = EditableTableModel(g_repo, GIOCATORI_FIELDS, GIOCATORI_HEADERS)
 
-        giocatori_tab = QWidget()
-        giocatori_layout = QVBoxLayout()
-        giocatori_layout.addWidget(self.giocatori_view)
-        giocatori_tab.setLayout(giocatori_layout)
+        g_view = QTableView()
+        g_view.setModel(g_model)
 
-        # --- Fantasquadre ---
-        self.fantasquadre_view = QTableView()
-        self.fantasquadre_model = EditableTableModel(
-            FANTASQUADRE_DATA,
-            FANTASQUADRE_HEADERS
-        )
-        self.fantasquadre_view.setModel(self.fantasquadre_model)
+        f_repo = Repository(session, Fantasquadra, FANTASQUADRE_FIELDS)
+        f_model = EditableTableModel(f_repo, FANTASQUADRE_FIELDS, FANTASQUADRE_HEADERS)
 
-        fantasquadre_tab = QWidget()
-        fantasquadre_layout = QVBoxLayout()
-        fantasquadre_layout.addWidget(self.fantasquadre_view)
-        fantasquadre_tab.setLayout(fantasquadre_layout)
+        f_view = QTableView()
+        f_view.setModel(f_model)
 
-        # --- Tabs ---
-        self.tabs.addTab(giocatori_tab, "Giocatori")
-        self.tabs.addTab(fantasquadre_tab, "Fantasquadre")
+        self.tabs.addTab(g_view, "Giocatori")
+        self.tabs.addTab(f_view, "Fantasquadre")
 
         self.setCentralWidget(self.tabs)

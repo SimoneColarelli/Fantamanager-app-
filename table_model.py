@@ -2,42 +2,49 @@ from PySide6.QtCore import QAbstractTableModel, Qt, QModelIndex
 
 
 class EditableTableModel(QAbstractTableModel):
-    def __init__(self, data, headers):
+    def __init__(self, repository, fields, headers):
         super().__init__()
-        self._data = data
-        self._headers = headers
+        self.repo = repository
+        self.fields = fields
+        self.headers = headers
+        self.refresh()
 
-    # --- REQUIRED METHODS ---
+    def refresh(self):
+        self.beginResetModel()
+        self.rows = self.repo.all()
+        self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
-        return len(self._data)
+        return len(self.rows)
 
     def columnCount(self, parent=QModelIndex()):
-        return len(self._headers)
+        return len(self.fields)
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
 
+        obj = self.rows[index.row()]
+        field = self.fields[index.column()]
+
         if role in (
             Qt.ItemDataRole.DisplayRole,
             Qt.ItemDataRole.EditRole,
         ):
-            return self._data[index.row()][index.column()]
+            return getattr(obj, field)
 
         return None
 
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
         if role == Qt.ItemDataRole.EditRole:
-            self._data[index.row()][index.column()] = value
+            obj = self.rows[index.row()]
+            field = self.fields[index.column()]
+            self.repo.set_value(obj, field, value)
             self.dataChanged.emit(index, index, [role])
             return True
         return False
 
     def flags(self, index):
-        if not index.isValid():
-            return Qt.ItemFlag.NoItemFlags
-
         return (
             Qt.ItemFlag.ItemIsSelectable
             | Qt.ItemFlag.ItemIsEnabled
@@ -49,5 +56,5 @@ class EditableTableModel(QAbstractTableModel):
             role == Qt.ItemDataRole.DisplayRole
             and orientation == Qt.Orientation.Horizontal
         ):
-            return self._headers[section]
+            return self.headers[section]
         return None
