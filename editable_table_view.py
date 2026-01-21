@@ -1,5 +1,8 @@
+from typing import cast
 from PySide6.QtWidgets import QTableView, QAbstractItemDelegate
 from PySide6.QtCore import Qt
+
+from editable_table_model import EditableTableModel
 
 
 class EditableTableView(QTableView):
@@ -16,14 +19,14 @@ class EditableTableView(QTableView):
         )
 
         # ===============================
-        # ENTER → conferma + destra
+        # ENTER
         # ===============================
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self._commit_and_move(index, dx=1, dy=0)
+            self._handle_enter(index)
             return
 
         # ===============================
-        # FRECCE → movimento
+        # FRECCE
         # ===============================
         if key in arrows:
             dx, dy = 0, 0
@@ -43,6 +46,27 @@ class EditableTableView(QTableView):
         super().keyPressEvent(event)
 
     # =====================================
+    # ENTER LOGIC
+    # =====================================
+    def _handle_enter(self, index):
+        if not index.isValid():
+            return
+
+        model = self.model()
+        model = cast(EditableTableModel, model)
+
+        # ➕ CELL: create record
+        if (
+            index.row() == 0
+            and index.column() == model.columnCount() - 1
+        ):
+            model.create_from_row()
+            return
+
+        # normal cell → commit + move right
+        self._commit_and_move(index, dx=1, dy=0)
+
+    # =====================================
     # CORE LOGIC
     # =====================================
     def _commit_and_move(self, index, dx=0, dy=0):
@@ -53,7 +77,7 @@ class EditableTableView(QTableView):
         row = index.row()
         col = index.column()
 
-        # 👉 Se stiamo editando: commit esplicito
+        # commit editor if editing
         editor = self.focusWidget()
         if editor:
             delegate = self.itemDelegate(index)
@@ -63,13 +87,11 @@ class EditableTableView(QTableView):
                 QAbstractItemDelegate.EndEditHint.NoHint
             )
 
-        # 👉 Calcolo nuova posizione
         new_row = row + dy
         new_col = col + dx
 
         if not (0 <= new_row < model.rowCount()):
             return
-
         if not (0 <= new_col < model.columnCount()):
             return
 

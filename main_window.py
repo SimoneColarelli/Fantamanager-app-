@@ -2,7 +2,7 @@ from PySide6.QtWidgets import QMainWindow, QTabWidget
 from database import SessionLocal, engine
 from models import Giocatore, Fantasquadra
 from repository import Repository
-from table_model import EditableTableModel
+from editable_table_model import EditableTableModel
 from constants import *
 from editable_table_view import EditableTableView
 
