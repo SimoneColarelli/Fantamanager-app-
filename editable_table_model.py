@@ -108,6 +108,8 @@ class EditableTableModel(QAbstractTableModel):
         if row == 0 and col < len(self.fields):
             self.new_row[self.fields[col]] = value
             self.dataChanged.emit(index, index)
+            plus_index = self.index(0, len(self.fields))
+            self.dataChanged.emit(plus_index, plus_index)
             return True
 
         # NORMAL ROW
@@ -124,19 +126,23 @@ class EditableTableModel(QAbstractTableModel):
         row = index.row()
         col = index.column()
 
+        # CREATION ROW
         if row == 0:
+            # ➕ column
             if col == len(self.fields):
                 return (
-                    Qt.ItemFlag.ItemIsEnabled
-                    if self._can_create()
-                    else Qt.ItemFlag.NoItemFlags
+                    Qt.ItemFlag.ItemIsSelectable
+                    | Qt.ItemFlag.ItemIsEnabled
                 )
+
+            # editable fields
             return (
                 Qt.ItemFlag.ItemIsSelectable
                 | Qt.ItemFlag.ItemIsEnabled
                 | Qt.ItemFlag.ItemIsEditable
             )
 
+        # NORMAL ROWS
         if col < len(self.fields):
             return (
                 Qt.ItemFlag.ItemIsSelectable
@@ -145,6 +151,7 @@ class EditableTableModel(QAbstractTableModel):
             )
 
         return Qt.ItemFlag.NoItemFlags
+
 
     # ---------- HEADER ----------
 

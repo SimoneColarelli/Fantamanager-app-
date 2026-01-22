@@ -1,6 +1,6 @@
 from typing import cast
 from PySide6.QtWidgets import QTableView, QAbstractItemDelegate
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 
 from editable_table_model import EditableTableModel
 
@@ -77,16 +77,6 @@ class EditableTableView(QTableView):
         row = index.row()
         col = index.column()
 
-        # commit editor if editing
-        editor = self.focusWidget()
-        if editor:
-            delegate = self.itemDelegate(index)
-            delegate.commitData.emit(editor)
-            delegate.closeEditor.emit(
-                editor,
-                QAbstractItemDelegate.EndEditHint.NoHint
-            )
-
         new_row = row + dy
         new_col = col + dx
 
@@ -96,5 +86,18 @@ class EditableTableView(QTableView):
             return
 
         next_index = model.index(new_row, new_col)
-        self.setCurrentIndex(next_index)
-        self.edit(next_index)
+        
+        # Close current editor if active, then move after a brief delay
+        if self.state() == QTableView.State.EditingState:
+            # Defer the movement to let Qt finish the commit cycle
+            QTimer.singleShot(0, lambda: self._move_to(next_index))
+        else:
+            self._move_to(next_index)
+
+    def _move_to(self, index):
+        self.setCurrentIndex(index)
+        
+        # Only try to edit if the cell is actually editable
+        flags = self.model().flags(index)
+        if flags & Qt.ItemFlag.ItemIsEditable:
+            self.edit(index)
