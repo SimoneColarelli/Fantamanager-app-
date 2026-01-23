@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean
 from database import Base
 
 
@@ -10,6 +10,7 @@ class Giocatore(Base):
     squadra = Column(String)
     ruolo = Column(String)
     prezzo = Column(Integer)
+    deleted = Column(Boolean, default=False)
 
 
 class Fantasquadra(Base):
@@ -19,3 +20,4 @@ class Fantasquadra(Base):
     nome = Column(String, nullable=False)
     allenatore = Column(String)
     crediti = Column(Integer)
+    deleted = Column(Boolean, default=False)

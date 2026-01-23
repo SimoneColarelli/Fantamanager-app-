@@ -5,7 +5,10 @@ class Repository:
         self.fields = fields
 
     def all(self):
-        return self.session.query(self.model).all()
+        return self.session.query(self.model).filter_by(deleted=False).all()
+    
+    def all_deleted(self):
+        return self.session.query(self.model).filter_by(deleted=True).all()
     
     def create(self, data: dict):
         obj = self.model(**data)
@@ -21,4 +24,16 @@ class Repository:
 
     def set_value(self, obj, field, value):
         setattr(obj, field, value)
+        self.session.commit()
+    
+    def soft_delete(self, obj):
+        obj.deleted = True
+        self.session.commit()
+    
+    def restore(self, obj):
+        obj.deleted = False
+        self.session.commit()
+    
+    def hard_delete(self, obj):
+        self.session.delete(obj)
         self.session.commit()

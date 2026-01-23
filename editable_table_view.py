@@ -1,11 +1,14 @@
 from typing import cast
 from PySide6.QtWidgets import QTableView, QAbstractItemDelegate
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 
 from editable_table_model import EditableTableModel
 
 
 class EditableTableView(QTableView):
+    
+    item_deleted = Signal()  # Signal to notify when item is deleted
+    item_restored = Signal()  # Signal to notify when item is restored
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -55,13 +58,18 @@ class EditableTableView(QTableView):
         model = self.model()
         model = cast(EditableTableModel, model)
 
-        # ➕ CELL: create record
-        if (
-            index.row() == 0
-            and index.column() == model.columnCount() - 1
-        ):
-            model.create_from_row()
-            return
+        # Last column handling
+        if index.column() == model.columnCount() - 1:
+            # ➕ CELL: create record (row 0)
+            if index.row() == 0:
+                model.create_from_row()
+                return
+            
+            # 🗑️ CELL: soft delete (other rows)
+            if index.row() > 0:
+                model.soft_delete_row(index.row())
+                self.item_deleted.emit()
+                return
 
         # normal cell → commit + move right
         self._commit_and_move(index, dx=1, dy=0)

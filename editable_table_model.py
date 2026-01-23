@@ -3,9 +3,7 @@ from PySide6.QtCore import (
     Qt,
     QModelIndex
 )
-from PySide6.QtGui import QColor
 from PySide6.QtGui import QColor, QFont
-
 
 
 class EditableTableModel(QAbstractTableModel):
@@ -13,7 +11,7 @@ class EditableTableModel(QAbstractTableModel):
         super().__init__()
         self.repo = repository
         self.fields = fields
-        self.headers = headers + [""]  # colonna +
+        self.headers = headers + [""]  # ➕/🗑️ column
         self.new_row = {f: "" for f in self.fields}
         self.refresh()
 
@@ -28,7 +26,7 @@ class EditableTableModel(QAbstractTableModel):
         return len(self.rows) + 1  # creation row
 
     def columnCount(self, parent=QModelIndex()):
-        return len(self.fields) + 1
+        return len(self.fields) + 1  # ➕/🗑️
 
     # ---------- DATA ----------
 
@@ -41,9 +39,8 @@ class EditableTableModel(QAbstractTableModel):
 
         # ─── CREATION ROW (row 0) ─────────────────────────
         if row == 0:
-            # ➕ button
+            # ➕ button (last column)
             if col == len(self.fields):
-
                 if role == Qt.ItemDataRole.DisplayRole and self._can_create():
                     return "➕" 
 
@@ -60,7 +57,6 @@ class EditableTableModel(QAbstractTableModel):
                     return font
 
                 return None
-
 
             field = self.fields[col]
             value = self.new_row[field]
@@ -84,6 +80,18 @@ class EditableTableModel(QAbstractTableModel):
 
         # ─── NORMAL ROWS ─────────────────────────────────
         obj = self.rows[row - 1]
+
+        # 🗑️ button (last column)
+        if col == len(self.fields):
+            if role == Qt.ItemDataRole.DisplayRole:
+                return "🗑️"
+            if role == Qt.ItemDataRole.ForegroundRole:
+                return QColor(255, 0, 0)
+            if role == Qt.ItemDataRole.FontRole:
+                font = QFont()
+                font.setBold(True)
+                return font
+            return None
 
         if col < len(self.fields):
             field = self.fields[col]
@@ -128,7 +136,7 @@ class EditableTableModel(QAbstractTableModel):
 
         # CREATION ROW
         if row == 0:
-            # ➕ column
+            # ➕ column (last column)
             if col == len(self.fields):
                 return (
                     Qt.ItemFlag.ItemIsSelectable
@@ -143,6 +151,13 @@ class EditableTableModel(QAbstractTableModel):
             )
 
         # NORMAL ROWS
+        # 🗑️ column (last column)
+        if col == len(self.fields):
+            return (
+                Qt.ItemFlag.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsEnabled
+            )
+        
         if col < len(self.fields):
             return (
                 Qt.ItemFlag.ItemIsSelectable
@@ -151,7 +166,6 @@ class EditableTableModel(QAbstractTableModel):
             )
 
         return Qt.ItemFlag.NoItemFlags
-
 
     # ---------- HEADER ----------
 
@@ -174,3 +188,11 @@ class EditableTableModel(QAbstractTableModel):
         self.repo.create(self.new_row)
         self.new_row = {f: "" for f in self.fields}
         self.refresh()
+    
+    # ---------- DELETE ----------
+    
+    def soft_delete_row(self, row):
+        if row > 0 and row <= len(self.rows):
+            obj = self.rows[row - 1]
+            self.repo.soft_delete(obj)
+            self.refresh()
