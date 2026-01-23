@@ -26,16 +26,25 @@ class DeletedItemsWidget(QWidget):
         title.setStyleSheet("font-weight: bold; font-size: 14px; margin-top: 10px;")
         layout.addWidget(title)
         
-        # Buttons layout (initially hidden)
+        # Buttons layout
         self.buttons_layout = QHBoxLayout()
         
+        # Select All button (always visible)
+        self.select_all_cb = QCheckBox("Seleziona tutto")
+        self.select_all_cb.stateChanged.connect(self.select_deselect_all)
+        self.buttons_layout.addWidget(self.select_all_cb)
+        
+        # Restore button (hidden when no selection)
         self.restore_btn = QPushButton("Ripristina selezionati")
         self.restore_btn.clicked.connect(self.restore_selected)
+        self.restore_btn.hide()
         self.buttons_layout.addWidget(self.restore_btn)
         
+        # Delete button (hidden when no selection)
         self.delete_btn = QPushButton("Elimina definitivamente")
         self.delete_btn.setStyleSheet("background-color: #dc3545; color: white;")
         self.delete_btn.clicked.connect(self.hard_delete_selected)
+        self.delete_btn.hide()
         self.buttons_layout.addWidget(self.delete_btn)
         
         self.buttons_layout.addStretch()
@@ -43,7 +52,6 @@ class DeletedItemsWidget(QWidget):
         # Create container widget for buttons
         self.buttons_widget = QWidget()
         self.buttons_widget.setLayout(self.buttons_layout)
-        self.buttons_widget.hide()
         layout.addWidget(self.buttons_widget)
         
         # Table
@@ -84,13 +92,22 @@ class DeletedItemsWidget(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         
         self.update_buttons_visibility()
+        self.select_all_cb.setChecked(False)
     
     def update_buttons_visibility(self):
         has_selection = any(cb.isChecked() for cb, _ in self.checkboxes)
-        self.buttons_widget.setVisible(has_selection)
+        self.restore_btn.setVisible(has_selection)
+        self.delete_btn.setVisible(has_selection)
     
     def get_selected_objects(self):
         return [obj for cb, obj in self.checkboxes if cb.isChecked()]
+    
+    def select_deselect_all(self):
+        for cb, _ in self.checkboxes:
+            if self.select_all_cb.isChecked():
+                cb.setChecked(True)
+            else:
+                cb.setChecked(False)
     
     def restore_selected(self):
         selected = self.get_selected_objects()
