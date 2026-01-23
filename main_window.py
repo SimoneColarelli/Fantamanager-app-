@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QWidget, QVBoxLayout, QSplitter
+from PySide6.QtWidgets import QMainWindow, QTabWidget, QSplitter
 from PySide6.QtCore import Qt
 from database import SessionLocal, engine
 from models import Giocatore, Fantasquadra
@@ -7,6 +7,7 @@ from editable_table_model import EditableTableModel
 from constants import *
 from editable_table_view import EditableTableView
 from deleted_items_widget import DeletedItemsWidget
+from table_with_edit_buttons import TableWithEditButtons
 
 
 class MainWindow(QMainWindow):
@@ -28,7 +29,9 @@ class MainWindow(QMainWindow):
 
         g_view = EditableTableView()
         g_view.setModel(g_model)
-        g_view.clicked.connect(self._handle_click)
+
+        # Wrap view with edit buttons
+        g_table_widget = TableWithEditButtons(g_view)
 
         g_deleted_widget = DeletedItemsWidget(g_repo, GIOCATORI_FIELDS, GIOCATORI_HEADERS)
         
@@ -41,7 +44,7 @@ class MainWindow(QMainWindow):
 
         # Create splitter for main table and deleted items
         g_splitter = QSplitter(Qt.Orientation.Vertical)
-        g_splitter.addWidget(g_view)
+        g_splitter.addWidget(g_table_widget)
         g_splitter.addWidget(g_deleted_widget)
         g_splitter.setStretchFactor(0, 3)  # Main table gets more space
         g_splitter.setStretchFactor(1, 1)  # Deleted items gets less space
@@ -52,7 +55,9 @@ class MainWindow(QMainWindow):
 
         f_view = EditableTableView()
         f_view.setModel(f_model)
-        f_view.clicked.connect(self._handle_click)
+
+        # Wrap view with edit buttons
+        f_table_widget = TableWithEditButtons(f_view)
 
         f_deleted_widget = DeletedItemsWidget(f_repo, FANTASQUADRE_FIELDS, FANTASQUADRE_HEADERS)
         
@@ -65,7 +70,7 @@ class MainWindow(QMainWindow):
 
         # Create splitter for main table and deleted items
         f_splitter = QSplitter(Qt.Orientation.Vertical)
-        f_splitter.addWidget(f_view)
+        f_splitter.addWidget(f_table_widget)
         f_splitter.addWidget(f_deleted_widget)
         f_splitter.setStretchFactor(0, 3)  # Main table gets more space
         f_splitter.setStretchFactor(1, 1)  # Deleted items gets less space
@@ -75,20 +80,3 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(f_splitter, "Fantasquadre")
 
         self.setCentralWidget(self.tabs)
-
-    def _handle_click(self, index):
-        model = index.model()
-        
-        # Last column handling
-        if index.column() == model.columnCount() - 1:
-            # ➕ button click (row 0)
-            if index.row() == 0:
-                model.create_from_row()
-            
-            # 🗑️ button click (other rows)
-            elif index.row() > 0:
-                model.soft_delete_row(index.row())
-                # Get the view and emit the signal
-                sender = self.sender()
-                if isinstance(sender, EditableTableView):
-                    sender.item_deleted.emit()

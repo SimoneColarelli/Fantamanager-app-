@@ -1,6 +1,7 @@
 from typing import cast
-from PySide6.QtWidgets import QTableView, QAbstractItemDelegate
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import QTableView, QAbstractItemDelegate, QMessageBox
+from PySide6.QtCore import Qt, QTimer, Signal, QPoint
+from PySide6.QtGui import QCursor
 
 from editable_table_model import EditableTableModel
 
@@ -48,6 +49,59 @@ class EditableTableView(QTableView):
 
         super().keyPressEvent(event)
 
+    def mousePressEvent(self, event):
+        """Handle mouse clicks on action buttons"""
+        index = self.indexAt(event.pos())
+        
+        if index.isValid():
+            model = self.model()
+            model = cast(EditableTableModel, model)
+            
+            # Last column handling
+            if index.column() == model.columnCount() - 1:
+                row = index.row()
+                
+                # Creation row: ➕ button
+                if row == 0:
+                    model.create_from_row()
+                    return
+                
+                # Normal rows: 🗑️ or 🗑️✓ buttons
+                if row > 0:
+                    # Check if row has pending changes
+                    has_edits = row in model.edited_cells and len(model.edited_cells[row]) > 0
+                    
+                    if has_edits:
+                        # Show a simple menu to choose between delete and confirm
+                        self._show_action_menu(event.pos(), row, model)
+                        return
+                    else:
+                        # Just delete
+                        model.soft_delete_row(row)
+                        self.item_deleted.emit()
+                        return
+        
+        super().mousePressEvent(event)
+
+    def _show_action_menu(self, pos, row, model):
+        """Show menu to choose between confirm changes or delete"""
+        from PySide6.QtWidgets import QMenu
+        
+        menu = QMenu(self)
+        
+        confirm_action = menu.addAction("✓ Conferma modifiche riga")
+        delete_action = menu.addAction("🗑️ Elimina riga")
+        
+        # Show menu at cursor position
+        global_pos = self.viewport().mapToGlobal(pos)
+        action = menu.exec(global_pos)
+        
+        if action == confirm_action:
+            model.commit_row_changes(row)
+        elif action == delete_action:
+            model.soft_delete_row(row)
+            self.item_deleted.emit()
+
     # =====================================
     # ENTER LOGIC
     # =====================================
@@ -60,15 +114,26 @@ class EditableTableView(QTableView):
 
         # Last column handling
         if index.column() == model.columnCount() - 1:
+            row = index.row()
+            
             # ➕ CELL: create record (row 0)
-            if index.row() == 0:
+            if row == 0:
                 model.create_from_row()
                 return
             
-            # 🗑️ CELL: soft delete (other rows)
-            if index.row() > 0:
-                model.soft_delete_row(index.row())
-                self.item_deleted.emit()
+            # Normal rows: handle 🗑️ or 🗑️✓
+            if row > 0:
+                has_edits = row in model.edited_cells and len(model.edited_cells[row]) > 0
+                
+                if has_edits:
+                    # Show menu
+                    rect = self.visualRect(index)
+                    pos = rect.center()
+                    self._show_action_menu(pos, row, model)
+                else:
+                    # Just delete
+                    model.soft_delete_row(row)
+                    self.item_deleted.emit()
                 return
 
         # normal cell → commit + move right
