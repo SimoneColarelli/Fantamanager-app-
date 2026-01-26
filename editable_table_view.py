@@ -66,13 +66,13 @@ class EditableTableView(QTableView):
                     model.create_from_row()
                     return
                 
-                # Normal rows: 🗑️ or 🗑️✓ buttons
+                # Normal rows: 🗑️ or 🗑️✓❌ buttons
                 if row > 0:
                     # Check if row has pending changes
                     has_edits = row in model.edited_cells and len(model.edited_cells[row]) > 0
                     
                     if has_edits:
-                        # Show a simple menu to choose between delete and confirm
+                        # Show a simple menu to choose between delete, confirm, and cancel
                         self._show_action_menu(event.pos(), row, model)
                         return
                     else:
@@ -84,12 +84,14 @@ class EditableTableView(QTableView):
         super().mousePressEvent(event)
 
     def _show_action_menu(self, pos, row, model):
-        """Show menu to choose between confirm changes or delete"""
+        """Show menu to choose between confirm changes, cancel changes, or delete"""
         from PySide6.QtWidgets import QMenu
         
         menu = QMenu(self)
         
         confirm_action = menu.addAction("✓ Conferma modifiche riga")
+        cancel_action = menu.addAction("❌ Cancella modifiche riga")
+        menu.addSeparator()
         delete_action = menu.addAction("🗑️ Elimina riga")
         
         # Show menu at cursor position
@@ -98,6 +100,8 @@ class EditableTableView(QTableView):
         
         if action == confirm_action:
             model.commit_row_changes(row)
+        elif action == cancel_action:
+            model.cancel_row_changes(row)
         elif action == delete_action:
             model.soft_delete_row(row)
             self.item_deleted.emit()
@@ -121,7 +125,7 @@ class EditableTableView(QTableView):
                 model.create_from_row()
                 return
             
-            # Normal rows: handle 🗑️ or 🗑️✓
+            # Normal rows: handle 🗑️ or 🗑️✓❌
             if row > 0:
                 has_edits = row in model.edited_cells and len(model.edited_cells[row]) > 0
                 

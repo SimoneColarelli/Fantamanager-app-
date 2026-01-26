@@ -90,14 +90,14 @@ class EditableTableModel(QAbstractTableModel):
         # ─── NORMAL ROWS ─────────────────────────────────
         obj = self.rows[row - 1]
 
-        # Last column: 🗑️ button or 🗑️✓ buttons
+        # Last column: 🗑️ button or 🗑️✓❌ buttons
         if col == len(self.fields):
             # Check if this row has pending changes
             has_edits = row in self.edited_cells and len(self.edited_cells[row]) > 0
             
             if role == Qt.ItemDataRole.DisplayRole:
                 if has_edits:
-                    return "🗑️ ✓"
+                    return "🗑️ ✓ ❌"
                 return "🗑️"
             
             if role == Qt.ItemDataRole.ForegroundRole:
@@ -302,6 +302,20 @@ class EditableTableModel(QAbstractTableModel):
             
             self.repo.session.commit()
             
+            del self.edited_cells[row]
+            del self.original_values[row]
+            
+            # Update the entire row
+            for col in range(self.columnCount()):
+                index = self.index(row, col)
+                self.dataChanged.emit(index, index)
+            
+            # Check if we still have pending changes
+            self.has_pending_changes.emit(bool(self.edited_cells))
+    
+    def cancel_row_changes(self, row):
+        """Cancel changes for a specific row"""
+        if row in self.edited_cells:
             del self.edited_cells[row]
             del self.original_values[row]
             
