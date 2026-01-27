@@ -1,8 +1,8 @@
+from typing import cast
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton
 from PySide6.QtCore import Signal
 from editable_table_model import EditableTableModel
 from editable_table_view import EditableTableView
-from typing import cast
 
 
 class TableWithEditButtons(QWidget):
@@ -52,7 +52,17 @@ class TableWithEditButtons(QWidget):
     def confirm_changes(self):
         model = cast(EditableTableModel, self.view.model())
         if model:
-            model.commit_all_changes()
+            try:
+                model.commit_all_changes()
+            except Exception as e:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.critical(
+                    self, 
+                    "Errore", 
+                    f"Errore durante il salvataggio delle modifiche:\n{str(e)}"
+                )
+                # Refresh model to restore proper state
+                model.refresh()
     
     def cancel_changes(self):
         model = cast(EditableTableModel, self.view.model())

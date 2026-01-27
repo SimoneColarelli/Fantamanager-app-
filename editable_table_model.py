@@ -1,3 +1,4 @@
+import math
 from PySide6.QtCore import (
     QAbstractTableModel,
     Qt,
@@ -5,6 +6,8 @@ from PySide6.QtCore import (
     Signal
 )
 from PySide6.QtGui import QColor, QFont
+
+from helpers import format_date_for_display, format_value_for_display
 
 
 class EditableTableModel(QAbstractTableModel):
@@ -15,7 +18,7 @@ class EditableTableModel(QAbstractTableModel):
         super().__init__()
         self.repo = repository
         self.fields = fields
-        self.headers = headers + [""]  # ➕/🗑️/✓ column
+        self.headers = headers + [""]  # Add empty header for ➕/🗑️/✓/❌ column
         self.new_row = {f: "" for f in self.fields}
         self.edited_cells = {}  # {row: {field: value}}
         self.original_values = {}  # {row: {field: original_value}}
@@ -128,7 +131,14 @@ class EditableTableModel(QAbstractTableModel):
                 Qt.ItemDataRole.DisplayRole,
                 Qt.ItemDataRole.EditRole,
             ):
-                return value
+                # Convert None to empty string for display
+                if value is None:
+                    return ""
+                # Format dates nicely, integer truncated and boolean in italian for display (only DisplayRole)
+                if role == Qt.ItemDataRole.DisplayRole:
+                    # Check if it's a date object
+                    return format_value_for_display(value)
+                return str(value)
 
         return None
 
@@ -154,8 +164,12 @@ class EditableTableModel(QAbstractTableModel):
         field = self.fields[col]
         original_value = getattr(obj, field)
         
+        # Convert value to string for comparison
+        original_str = str(original_value) if original_value is not None else ""
+        value_str = str(value) if value is not None else ""
+        
         # Only track if value actually changed
-        if str(value) != str(original_value):
+        if value_str != original_str:
             # Initialize tracking for this row
             if row not in self.edited_cells:
                 self.edited_cells[row] = {}
@@ -237,7 +251,9 @@ class EditableTableModel(QAbstractTableModel):
             role == Qt.ItemDataRole.DisplayRole
             and orientation == Qt.Orientation.Horizontal
         ):
-            return self.headers[section]
+            if section < len(self.headers):
+                return self.headers[section]
+            return ""
         return None
 
     # ---------- CREATE ----------
@@ -267,21 +283,31 @@ class EditableTableModel(QAbstractTableModel):
     
     def commit_all_changes(self):
         """Commit all pending changes to database"""
-        for row, changes in self.edited_cells.items():
-            obj = self.rows[row - 1]
-            for field, value in changes.items():
-                setattr(obj, field, value)
-        
-        if self.edited_cells:
-            self.repo.session.commit()
-        
-        self.edited_cells = {}
-        self.original_values = {}
-        
-        # Refresh to update display
-        self.beginResetModel()
-        self.endResetModel()
-        self.has_pending_changes.emit(False)
+        try:
+            for row, changes in self.edited_cells.items():
+                obj = self.rows[row - 1]
+                for field, value in changes.items():
+                    # Convert value to proper type before setting
+                    column = getattr(self.repo.model, field)
+                    converted_value = self.repo._convert_value(value, column.type)
+                    setattr(obj, field, converted_value)
+            
+            if self.edited_cells:
+                self.repo.session.commit()
+            
+            self.edited_cells = {}
+            self.original_values = {}
+            
+            # Refresh to update display
+            self.beginResetModel()
+            self.endResetModel()
+            self.has_pending_changes.emit(False)
+        except Exception as e:
+            # Rollback on error
+            self.repo.session.rollback()
+            print(f"Error committing changes: {e}")
+            # Re-raise to show user
+            raise
     
     def cancel_all_changes(self):
         """Cancel all pending changes"""
@@ -296,22 +322,32 @@ class EditableTableModel(QAbstractTableModel):
     def commit_row_changes(self, row):
         """Commit changes for a specific row"""
         if row in self.edited_cells:
-            obj = self.rows[row - 1]
-            for field, value in self.edited_cells[row].items():
-                setattr(obj, field, value)
-            
-            self.repo.session.commit()
-            
-            del self.edited_cells[row]
-            del self.original_values[row]
-            
-            # Update the entire row
-            for col in range(self.columnCount()):
-                index = self.index(row, col)
-                self.dataChanged.emit(index, index)
-            
-            # Check if we still have pending changes
-            self.has_pending_changes.emit(bool(self.edited_cells))
+            try:
+                obj = self.rows[row - 1]
+                for field, value in self.edited_cells[row].items():
+                    # Convert value to proper type before setting
+                    column = getattr(self.repo.model, field)
+                    converted_value = self.repo._convert_value(value, column.type)
+                    setattr(obj, field, converted_value)
+                
+                self.repo.session.commit()
+                
+                del self.edited_cells[row]
+                del self.original_values[row]
+                
+                # Update the entire row
+                for col in range(self.columnCount()):
+                    index = self.index(row, col)
+                    self.dataChanged.emit(index, index)
+                
+                # Check if we still have pending changes
+                self.has_pending_changes.emit(bool(self.edited_cells))
+            except Exception as e:
+                # Rollback on error
+                self.repo.session.rollback()
+                print(f"Error committing row changes: {e}")
+                # Re-raise to show user
+                raise
     
     def cancel_row_changes(self, row):
         """Cancel changes for a specific row"""

@@ -99,7 +99,17 @@ class EditableTableView(QTableView):
         action = menu.exec(global_pos)
         
         if action == confirm_action:
-            model.commit_row_changes(row)
+            try:
+                model.commit_row_changes(row)
+            except Exception as e:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.critical(
+                    self, 
+                    "Errore", 
+                    f"Errore durante il salvataggio:\n{str(e)}"
+                )
+                # Refresh model to restore proper state
+                model.refresh()
         elif action == cancel_action:
             model.cancel_row_changes(row)
         elif action == delete_action:

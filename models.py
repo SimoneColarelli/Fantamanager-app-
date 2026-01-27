@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Integer, String, Boolean, Date, Float
 from database import Base
 
 
@@ -8,8 +8,18 @@ class Giocatore(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False)
     squadra = Column(String)
-    ruolo = Column(String)
-    prezzo = Column(Integer)
+    spesa = Column(Float)
+    data_acquisto = Column(Date)
+    fascia = Column(String)
+    quotazione = Column(Integer)
+    dq = Column(Integer)
+    valore_svincolo = Column(Float)
+    scadenza_contratto = Column(Date)
+    in_prestito_a = Column(Integer)
+    inizio_prestito = Column(Date)
+    fine_prestito = Column(Date)
+    convocato = Column(Boolean, default=True)
+    in_serie_a = Column(Boolean, default=True)
     deleted = Column(Boolean, default=False)
 
 
@@ -18,6 +28,8 @@ class Fantasquadra(Base):
 
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False)
-    allenatore = Column(String)
-    crediti = Column(Integer)
+    fm = Column(String)
+    campionati = Column(Integer, default=0)
+    coppe = Column(Integer, default=0)
+    supercoppe = Column(Integer, default=0)
     deleted = Column(Boolean, default=False)

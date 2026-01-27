@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal
 
+from helpers import format_value_for_display
+
 
 class DeletedItemsWidget(QWidget):
     
@@ -83,7 +85,7 @@ class DeletedItemsWidget(QWidget):
             
             # Data fields
             for col, field in enumerate(self.fields):
-                value = getattr(obj, field)
+                value = format_value_for_display(getattr(obj, field))
                 item = QTableWidgetItem(str(value) if value else "")
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row, col + 1, item)

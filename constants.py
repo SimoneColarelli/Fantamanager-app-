@@ -1,5 +1,8 @@
-GIOCATORI_FIELDS = ["nome", "squadra", "ruolo", "prezzo"]
-GIOCATORI_HEADERS = ["Nome", "Squadra", "Ruolo", "Prezzo"]
+def prettify(name: str) -> str:
+    return name.replace("_", " ").capitalize()
 
-FANTASQUADRE_FIELDS = ["nome", "allenatore", "crediti"]
-FANTASQUADRE_HEADERS = ["Nome", "Allenatore", "Crediti"]
+GIOCATORI_FIELDS = ["nome", "squadra", "spesa", "data_acquisto", "fascia", "quotazione", "dq", "valore_svincolo", "scadenza_contratto", "in_prestito_a", "inizio_prestito", "fine_prestito", "convocato", "in_serie_a"]
+GIOCATORI_HEADERS = [prettify(field) for field in GIOCATORI_FIELDS]
+
+FANTASQUADRE_FIELDS = ["nome", "fm", "campionati", "coppe", "supercoppe"]
+FANTASQUADRE_HEADERS = [prettify(field) for field in FANTASQUADRE_FIELDS]
