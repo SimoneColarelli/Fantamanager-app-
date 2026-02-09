@@ -164,12 +164,15 @@ class EditableTableModel(QAbstractTableModel):
         field = self.fields[col]
         original_value = getattr(obj, field)
         
-        # Convert value to string for comparison
-        original_str = str(original_value) if original_value is not None else ""
-        value_str = str(value) if value is not None else ""
+        # Convert the new value to the proper type for comparison
+        column = getattr(self.repo.model, field)
+        converted_value = self.repo._convert_value(value, column.type)
+        
+        # Compare converted values (this handles dates, booleans, etc. properly)
+        values_are_equal = self._values_are_equal(original_value, converted_value)
         
         # Only track if value actually changed
-        if value_str != original_str:
+        if not values_are_equal:
             # Initialize tracking for this row
             if row not in self.edited_cells:
                 self.edited_cells[row] = {}
@@ -179,7 +182,7 @@ class EditableTableModel(QAbstractTableModel):
             if field not in self.original_values[row]:
                 self.original_values[row][field] = original_value
             
-            # Store edited value
+            # Store edited value (keep as string for now, will convert on commit)
             self.edited_cells[row][field] = value
             
             # Emit signal that we have pending changes
@@ -204,6 +207,31 @@ class EditableTableModel(QAbstractTableModel):
         self.dataChanged.emit(action_index, action_index)
         
         return True
+
+    def _values_are_equal(self, original, converted):
+        """Compare two values for equality, handling None and different types"""
+        # Both None
+        if original is None and converted is None:
+            return True
+        
+        # One is None, other isn't
+        if original is None or converted is None:
+            return False
+        
+        # Both are dates - compare directly
+        if hasattr(original, 'strftime') and hasattr(converted, 'strftime'):
+            return original == converted
+        
+        # Both are booleans
+        if isinstance(original, bool) and isinstance(converted, bool):
+            return original == converted
+        
+        # Both are numbers
+        if isinstance(original, (int, float)) and isinstance(converted, (int, float)):
+            return original == converted
+        
+        # Convert to string and compare
+        return str(original) == str(converted)
 
     # ---------- FLAGS ----------
 

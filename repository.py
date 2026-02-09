@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 
 
 class Repository:
@@ -14,8 +14,9 @@ class Repository:
         return self.session.query(self.model).filter_by(deleted=True).all()
     
     def create(self, data: dict):
-        # Data should already be properly typed from formatters
-        obj = self.model(**data)
+        # Convert data types before creating
+        converted_data = self._convert_data_types(data)
+        obj = self.model(**converted_data)
         self.session.add(obj)
         self.session.commit()
         return obj
@@ -61,6 +62,41 @@ class Repository:
         
         return converted
     
+    def _parse_italian_date(self, date_str):
+        """
+        Parse Italian date format 'mon-YY' into a date object.
+        Example: 'ago-26' -> date(2026, 8, 1)
+        Returns the first day of that month.
+        """
+        if not date_str or date_str == "":
+            return None
+        
+        # Map Italian month abbreviations to month numbers
+        months = {
+            "gen": 1, "feb": 2, "mar": 3, "apr": 4,
+            "mag": 5, "giu": 6, "lug": 7, "ago": 8,
+            "set": 9, "ott": 10, "nov": 11, "dic": 12
+        }
+        
+        try:
+            parts = date_str.split("-")
+            if len(parts) != 2:
+                return None
+            
+            month_abbr = parts[0].lower()
+            year_short = parts[1]
+            
+            if month_abbr not in months:
+                return None
+            
+            month_num = months[month_abbr]
+            # Convert 2-digit year to 4-digit (assuming 20xx)
+            year_full = 2000 + int(year_short)
+            
+            return date(year_full, month_num, 1)
+        except (ValueError, AttributeError, IndexError):
+            return None
+    
     def _convert_value(self, value, column_type):
         """Convert a value to the appropriate type based on column type"""
         from sqlalchemy import Integer, Float, Boolean, Date, String
@@ -86,7 +122,12 @@ class Repository:
                     return value
                 # Try to parse string date
                 if isinstance(value, str):
-                    # Try common date formats
+                    # First try Italian format (ago-26, gen-25, etc.)
+                    italian_date = self._parse_italian_date(value)
+                    if italian_date:
+                        return italian_date
+                    
+                    # Then try common date formats
                     for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y']:
                         try:
                             return datetime.strptime(value, fmt).date()
