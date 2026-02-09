@@ -14,9 +14,8 @@ class Repository:
         return self.session.query(self.model).filter_by(deleted=True).all()
     
     def create(self, data: dict):
-        # Convert data types as needed
-        converted_data = self._convert_data_types(data)
-        obj = self.model(**converted_data)
+        # Data should already be properly typed from formatters
+        obj = self.model(**data)
         self.session.add(obj)
         self.session.commit()
         return obj
@@ -28,10 +27,8 @@ class Repository:
         return obj
 
     def set_value(self, obj, field, value):
-        # Get the column type from the model
-        column = getattr(self.model, field)
-        converted_value = self._convert_value(value, column.type)
-        setattr(obj, field, converted_value)
+        # Value should already be properly typed from formatters
+        setattr(obj, field, value)
         self.session.commit()
     
     def soft_delete(self, obj):
@@ -45,7 +42,7 @@ class Repository:
     def hard_delete(self, obj):
         self.session.delete(obj)
         self.session.commit()
-    
+
     def _convert_data_types(self, data: dict) -> dict:
         """Convert string values to appropriate types based on model columns"""
         converted = {}

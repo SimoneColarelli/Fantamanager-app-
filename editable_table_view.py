@@ -4,12 +4,43 @@ from PySide6.QtCore import Qt, QTimer, Signal, QPoint
 from PySide6.QtGui import QCursor
 
 from editable_table_model import EditableTableModel
+from boolean_delegate import BooleanDelegate
 
 
 class EditableTableView(QTableView):
     
     item_deleted = Signal()  # Signal to notify when item is deleted
     item_restored = Signal()  # Signal to notify when item is restored
+    
+    def __init__(self):
+        super().__init__()
+        self._boolean_delegate = BooleanDelegate()
+    
+    def setModel(self, model):
+        """Override setModel to set delegates for boolean columns"""
+        super().setModel(model)
+        
+        if model:
+            # Set boolean delegate for boolean columns
+            for col, field in enumerate(model.fields):
+                column = getattr(model.repo.model, field)
+                column_type = type(column.type).__name__
+                
+                if column_type == 'Boolean':
+                    self.setItemDelegateForColumn(col, self._boolean_delegate)
+                if column_type == 'Date':
+                    # Use date delegate
+                    from date_delegate import DataAcquistoDelegate, ScadenzaContrattoDelegate, InizioPrestitoDelegate, FinePrestitoDelegate
+                    if field == 'data_acquisto':
+                        self.setItemDelegateForColumn(col, DataAcquistoDelegate())
+                    elif field == 'scadenza_contratto':
+                        data_acquisto_col_index = model.fields.index('data_acquisto')
+                        self.setItemDelegateForColumn(col, ScadenzaContrattoDelegate(model, data_acquisto_col_index))
+                    elif field == 'inizio_prestito':
+                        self.setItemDelegateForColumn(col, InizioPrestitoDelegate())
+                    elif field == 'fine_prestito':
+                        inizio_prestito_col_index = model.fields.index('inizio_prestito')
+                        self.setItemDelegateForColumn(col, FinePrestitoDelegate(model, inizio_prestito_col_index))  # Same logic as inizio_prestito
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -80,6 +111,14 @@ class EditableTableView(QTableView):
                         model.soft_delete_row(row)
                         self.item_deleted.emit()
                         return
+            
+            # For other columns: open editor on single left-click if editable
+            if event.button() == Qt.MouseButton.LeftButton:
+                flags = self.model().flags(index)
+                if flags & Qt.ItemFlag.ItemIsEditable:
+                    self.setCurrentIndex(index)
+                    self.edit(index)
+                    return
         
         super().mousePressEvent(event)
 
