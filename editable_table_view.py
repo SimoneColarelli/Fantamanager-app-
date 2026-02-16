@@ -26,6 +26,9 @@ class EditableTableView(QTableView):
                 column = getattr(model.repo.model, field)
                 column_type = type(column.type).__name__
                 
+                if field == "squadra":
+                    from squadra_delegate import SquadraDelegate
+                    self.setItemDelegateForColumn(col, SquadraDelegate())
                 if column_type == 'Boolean':
                     self.setItemDelegateForColumn(col, self._boolean_delegate)
                 if field == 'fascia':

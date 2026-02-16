@@ -23,3 +23,11 @@ def calculate_fascia(spesa: int) -> int:
     else:
         return 0  # Invalid fascia, can be handled as needed
     
+FANTASQUADRE_NAMES = ["Zarro Team", 
+                      "I Cammelloni",
+                      "Bomberonoi",
+                      "Atletico Abusivo",
+                      "Real Madrink",
+                      "Spal Letti",
+                      "Bayern Muten",
+                      "Red Dragon"]
