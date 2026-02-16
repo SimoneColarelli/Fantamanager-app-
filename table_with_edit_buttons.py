@@ -1,12 +1,13 @@
 from typing import cast
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Qt, QTimer
+from PySide6.QtGui import QIcon
 from editable_table_model import EditableTableModel
 from editable_table_view import EditableTableView
 
 
 class TableWithEditButtons(QWidget):
-    """Widget that combines a table view with edit confirmation buttons"""
+    """Widget that combines a table view with edit confirmation buttons and a floating refresh button"""
     
     def __init__(self, view: EditableTableView):
         super().__init__()
@@ -43,7 +44,46 @@ class TableWithEditButtons(QWidget):
         # Table
         layout.addWidget(self.view)
         
+        # Floating refresh button (bottom right)
+        self.refresh_btn = QPushButton("🔄")
+        self.refresh_btn.setFixedSize(50, 50)
+        self.refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #007bff;
+                color: white;
+                border-radius: 25px;
+                font-size: 20px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #0056b3;
+            }
+            QPushButton:pressed {
+                background-color: #004085;
+            }
+        """)
+        self.refresh_btn.setToolTip("Aggiorna tabella")
+        self.refresh_btn.clicked.connect(self.refresh_table)
+        self.refresh_btn.setParent(self.view)
+        
+        # Position the refresh button
+        QTimer.singleShot(0, self.position_refresh_button)
+        
         self.setLayout(layout)
+    
+    def resizeEvent(self, event):
+        """Reposition refresh button when widget is resized"""
+        super().resizeEvent(event)
+        self.position_refresh_button()
+    
+    def position_refresh_button(self):
+        """Position the refresh button at bottom right corner of the table"""
+        if self.view and self.refresh_btn:
+            # Position 10px from bottom and 10px from right edge
+            x = self.view.width() - self.refresh_btn.width() - 10
+            y = self.view.height() - self.refresh_btn.height() - 10
+            self.refresh_btn.move(x, y)
+            self.refresh_btn.raise_()  # Bring to front
     
     def update_buttons_visibility(self, has_changes):
         self.confirm_btn.setVisible(has_changes)
@@ -68,3 +108,36 @@ class TableWithEditButtons(QWidget):
         model = cast(EditableTableModel, self.view.model())
         if model:
             model.cancel_all_changes()
+    
+    def refresh_table(self):
+        """Refresh the current table data"""
+        model = cast(EditableTableModel, self.view.model())
+        if model:
+            # Check if there are pending changes
+            if model.has_changes():
+                from PySide6.QtWidgets import QMessageBox
+                reply = QMessageBox.question(
+                    self,
+                    "Modifiche non salvate",
+                    "Ci sono modifiche non salvate. L'aggiornamento le cancellerà. Continuare?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                
+                if reply == QMessageBox.StandardButton.No:
+                    return
+            
+            model.refresh()
+            
+            # Visual feedback: briefly change button color
+            original_style = self.refresh_btn.styleSheet()
+            self.refresh_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    border-radius: 25px;
+                    font-size: 20px;
+                    font-weight: bold;
+                }
+            """)
+            QTimer.singleShot(200, lambda: self.refresh_btn.setStyleSheet(original_style))

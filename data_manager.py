@@ -146,8 +146,13 @@ class DataManager:
 
 class DataManagerUI:
 
-    def __init__(self, parent_window):
+    def __init__(self, parent_window, refresh_callback=None):
+        """
+        parent_window: The main window
+        refresh_callback: Optional callback function to refresh all data after import
+        """
         self.parent = parent_window
+        self.refresh_callback = refresh_callback
 
     def export_all(self):
         filename, _ = QFileDialog.getSaveFileName(
@@ -172,6 +177,10 @@ class DataManagerUI:
         if filename:
             success, msg = DataManager.import_data(filename)
             self._show_result(success, msg)
+            
+            # If import was successful and we have a refresh callback, call it
+            if success and self.refresh_callback:
+                self.refresh_callback()
 
     def export_single_table(self):
         models = DataManager.get_all_models()
@@ -203,6 +212,10 @@ class DataManagerUI:
                 if filename:
                     success, msg = DataManager.import_data(filename, specific_table=selected_model)
                     self._show_result(success, msg)
+                    
+                    # If import was successful and we have a refresh callback, call it
+                    if success and self.refresh_callback:
+                        self.refresh_callback()
 
     def _show_result(self, success, msg):
         if success:
