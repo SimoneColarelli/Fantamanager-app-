@@ -145,6 +145,7 @@ class DataManager:
 # --- UI INTERGRATION HELPERS ---
 
 class DataManagerUI:
+
     def __init__(self, parent_window):
         self.parent = parent_window
 
