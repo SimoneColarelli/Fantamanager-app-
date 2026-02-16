@@ -28,6 +28,9 @@ class EditableTableView(QTableView):
                 
                 if column_type == 'Boolean':
                     self.setItemDelegateForColumn(col, self._boolean_delegate)
+                if field == 'fascia':
+                    from int_delegate import FasciaDelegate
+                    self.setItemDelegateForColumn(col, FasciaDelegate())
                 if column_type == 'Date':
                     # Use date delegate
                     from date_delegate import DataAcquistoDelegate, ScadenzaContrattoDelegate, InizioPrestitoDelegate, FinePrestitoDelegate

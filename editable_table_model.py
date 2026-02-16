@@ -6,9 +6,9 @@ from PySide6.QtCore import (
     Signal
 )
 from PySide6.QtGui import QColor, QFont
-
 from helpers import format_date_for_display, format_value_for_display
-
+# Import your calculation function
+from constants import calculate_fascia 
 
 class EditableTableModel(QAbstractTableModel):
     
@@ -153,8 +153,45 @@ class EditableTableModel(QAbstractTableModel):
 
         # CREATION ROW
         if row == 0 and col < len(self.fields):
-            self.new_row[self.fields[col]] = value
+            field_name = self.fields[col]
+            
+            # 1. Update the value the user just typed
+            self.new_row[field_name] = value
             self.dataChanged.emit(index, index)
+            
+            # 2. AUTOMATIC LOGIC: Only run this when 'spesa' is the field being edited
+            if field_name == "spesa":
+                try:
+                    # value comes in as string from QLineEdit usually, convert to int
+                    spesa_val = int(value) if value else 0
+                    
+                    # --- Update FASCIA ---
+                    if "fascia" in self.fields:
+                        new_fascia = calculate_fascia(spesa_val)
+                        self.new_row["fascia"] = str(new_fascia)
+                        # Notify view
+                        idx = self.index(0, self.fields.index("fascia"))
+                        self.dataChanged.emit(idx, idx)
+
+                    # --- Update VALORE SVINCOLO (Same as Spesa) ---
+                    if "valore_svincolo" in self.fields:
+                        self.new_row["valore_svincolo"] = str(spesa_val)
+                        # Notify view
+                        idx = self.index(0, self.fields.index("valore_svincolo"))
+                        self.dataChanged.emit(idx, idx)
+                        
+                    # --- Update DQ (Default to 0) ---
+                    if "dq" in self.fields:
+                        self.new_row["dq"] = "0"
+                        # Notify view
+                        idx = self.index(0, self.fields.index("dq"))
+                        self.dataChanged.emit(idx, idx)
+                        
+                except (ValueError, TypeError):
+                    # Handle cases where input is not a valid number
+                    pass
+
+            # Update the + button status
             plus_index = self.index(0, len(self.fields))
             self.dataChanged.emit(plus_index, plus_index)
             return True
@@ -287,8 +324,14 @@ class EditableTableModel(QAbstractTableModel):
     # ---------- CREATE ----------
 
     def _can_create(self):
-        return all(str(v).strip() != "" for v in self.new_row.values())
-
+        for v in self.fields:
+            if v != "in_prestito_a" and v != "inizio_prestito" and v != "fine_prestito":  # These fields can be empty
+                if str(self.new_row[v]).strip() != "":
+                    continue
+                else:
+                    return False           
+        return True
+    
     def create_from_row(self):
         if not self._can_create():
             return

@@ -73,6 +73,7 @@ class ScadenzaContrattoDelegate(QStyledItemDelegate):
         editor = QComboBox(parent)
         
         # Determine choices based on Data acquisto
+
         if data_acquisto in [f"gen-{cy}", f"feb-{cy}"]:
             choices = [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}"]
             default = choices[0]  # lug-(cy+2)

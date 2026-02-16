@@ -15,9 +15,9 @@ class Giocatore(Base):
     dq = Column(Integer)
     valore_svincolo = Column(Float)
     scadenza_contratto = Column(Date)
-    in_prestito_a = Column(Integer)
-    inizio_prestito = Column(Date)
-    fine_prestito = Column(Date)
+    in_prestito_a = Column(Integer, nullable=True)  # Foreign key to Fantasquadra.id, can be null
+    inizio_prestito = Column(Date, nullable=True)
+    fine_prestito = Column(Date, nullable=True )
     convocato = Column(Boolean, default=True)
     in_serie_a = Column(Boolean, default=True)
     deleted = Column(Boolean, default=False)
