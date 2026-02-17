@@ -104,22 +104,26 @@ class MainWindow(QMainWindow):
         # Create a new "Data" menu
         data_menu = menubar.addMenu("Data")
 
+        export_menu = data_menu.addMenu("Export")
+
         # Export Actions
         export_all_action = QAction("Export All Data...", self)
         export_all_action.triggered.connect(self.data_manager_ui.export_all)
-        data_menu.addAction(export_all_action)
+        export_menu.addAction(export_all_action)
 
         export_table_action = QAction("Export Single Table...", self)
         export_table_action.triggered.connect(self.data_manager_ui.export_single_table)
-        data_menu.addAction(export_table_action)
+        export_menu.addAction(export_table_action)
 
         data_menu.addSeparator()
+
+        import_menu = data_menu.addMenu("Import")
 
         # Import Actions
         import_all_action = QAction("Import All Data...", self)
         import_all_action.triggered.connect(self.data_manager_ui.import_all)
-        data_menu.addAction(import_all_action)
+        import_menu.addAction(import_all_action)
 
         import_table_action = QAction("Import Single Table...", self)
         import_table_action.triggered.connect(self.data_manager_ui.import_single_table)
-        data_menu.addAction(import_table_action)
+        import_menu.addAction(import_table_action)
