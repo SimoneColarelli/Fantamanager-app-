@@ -5,6 +5,7 @@ from PySide6.QtGui import QCursor
 
 from editable_table_model import EditableTableModel
 from boolean_delegate import BooleanDelegate
+from models import Fantasquadra
 
 
 class EditableTableView(QTableView):
@@ -47,6 +48,11 @@ class EditableTableView(QTableView):
                     elif field == 'fine_prestito':
                         inizio_prestito_col_index = model.fields.index('inizio_prestito')
                         self.setItemDelegateForColumn(col, FinePrestitoDelegate(model, inizio_prestito_col_index))  # Same logic as inizio_prestito
+            if model.model_name == "fantasquadre":
+                for col, field in enumerate(model.fields):
+                    if field == "nome":
+                        from squadra_delegate import SquadraDelegate
+                        self.setItemDelegateForColumn(col, SquadraDelegate(model))
 
     def keyPressEvent(self, event):
         key = event.key()

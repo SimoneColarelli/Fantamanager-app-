@@ -8,7 +8,8 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QFont
 from helpers import format_date_for_display, format_value_for_display
 # Import your calculation function
-from constants import calculate_fascia 
+from constants import calculate_fascia
+from repository import Repository 
 
 class EditableTableModel(QAbstractTableModel):
     
@@ -16,7 +17,8 @@ class EditableTableModel(QAbstractTableModel):
     
     def __init__(self, repository, fields, headers):
         super().__init__()
-        self.repo = repository
+        self.repo : Repository = repository
+        self.model_name = repository.model.__tablename__
         self.fields = fields
         self.headers = headers + [""]  # Add empty header for ➕/🗑️/✓/❌ column
         self.new_row = {f: "" for f in self.fields}
