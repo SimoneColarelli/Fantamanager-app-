@@ -1,6 +1,6 @@
 from typing import cast
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton
-from PySide6.QtCore import Signal, Qt, QTimer
+from PySide6.QtCore import Signal, Qt, QTimer, QSortFilterProxyModel
 from PySide6.QtGui import QIcon
 from editable_table_model import EditableTableModel
 from editable_table_view import EditableTableView
@@ -15,10 +15,17 @@ class TableWithEditButtons(QWidget):
         self.setup_ui()
         
         # Connect model signal
-        model = cast(EditableTableModel, self.view.model())
+        model = self.get_source_model()
         if model:
             model.has_pending_changes.connect(self.update_buttons_visibility)
-    
+
+    def get_source_model(self) -> EditableTableModel:
+            """Helper to extract the base model safely even if wrapped in a ProxyModel"""
+            model = self.view.model()
+            if isinstance(model, QSortFilterProxyModel):
+                return cast(EditableTableModel, model.sourceModel())
+            return cast(EditableTableModel, model)  
+      
     def setup_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -89,31 +96,29 @@ class TableWithEditButtons(QWidget):
         self.confirm_btn.setVisible(has_changes)
         self.cancel_btn.setVisible(has_changes)
     
-    def confirm_changes(self):
-        model = cast(EditableTableModel, self.view.model())
-        if model:
-            try:
-                model.commit_all_changes()
-            except Exception as e:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.critical(
-                    self, 
-                    "Errore", 
-                    f"Errore durante il salvataggio delle modifiche:\n{str(e)}"
-                )
-                # Refresh model to restore proper state
-                model.refresh()
     
+    def confirm_changes(self):
+            model = self.get_source_model()
+            if model:
+                try:
+                    model.commit_all_changes()
+                except Exception as e:
+                    from PySide6.QtWidgets import QMessageBox
+                    QMessageBox.critical(
+                        self, 
+                        "Errore", 
+                        f"Errore durante il salvataggio delle modifiche:\n{str(e)}"
+                    )
+                    model.refresh()
+        
     def cancel_changes(self):
-        model = cast(EditableTableModel, self.view.model())
+        model = self.get_source_model()
         if model:
             model.cancel_all_changes()
     
     def refresh_table(self):
-        """Refresh the current table data"""
-        model = cast(EditableTableModel, self.view.model())
+        model = self.get_source_model()
         if model:
-            # Check if there are pending changes
             if model.has_changes():
                 from PySide6.QtWidgets import QMessageBox
                 reply = QMessageBox.question(
@@ -123,7 +128,6 @@ class TableWithEditButtons(QWidget):
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.No
                 )
-                
                 if reply == QMessageBox.StandardButton.No:
                     return
             

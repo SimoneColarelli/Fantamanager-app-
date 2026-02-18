@@ -1,6 +1,6 @@
 from typing import cast
 from PySide6.QtWidgets import QTableView, QAbstractItemDelegate, QMessageBox
-from PySide6.QtCore import Qt, QTimer, Signal, QPoint
+from PySide6.QtCore import Qt, QTimer, Signal, QPoint, QSortFilterProxyModel
 from PySide6.QtGui import QCursor
 
 from editable_table_model import EditableTableModel
@@ -16,15 +16,25 @@ class EditableTableView(QTableView):
     def __init__(self):
         super().__init__()
         self._boolean_delegate = BooleanDelegate()
+
+    def get_base_model(self):
+        """Helper to get the original EditableTableModel, bypassing any Proxy."""
+        model = self.model()
+        if isinstance(model, QSortFilterProxyModel):
+            return model.sourceModel()
+        return model
     
     def setModel(self, model):
         """Override setModel to set delegates for boolean columns"""
         super().setModel(model)
         
         if model:
+            # Estraiamo il modello base per leggere attributi come 'fields' e 'repo'
+            base_model = self.get_base_model()
+            
             # Set boolean delegate for boolean columns
-            for col, field in enumerate(model.fields):
-                column = getattr(model.repo.model, field)
+            for col, field in enumerate(base_model.fields): #type: ignore
+                column = getattr(base_model.repo.model, field) #type: ignore
                 column_type = type(column.type).__name__
                 
                 if field == "squadra":
@@ -41,18 +51,18 @@ class EditableTableView(QTableView):
                     if field == 'data_acquisto':
                         self.setItemDelegateForColumn(col, DataAcquistoDelegate())
                     elif field == 'scadenza_contratto':
-                        data_acquisto_col_index = model.fields.index('data_acquisto')
-                        self.setItemDelegateForColumn(col, ScadenzaContrattoDelegate(model, data_acquisto_col_index))
+                        data_acquisto_col_index = base_model.fields.index('data_acquisto') #type: ignore
+                        self.setItemDelegateForColumn(col, ScadenzaContrattoDelegate(base_model, data_acquisto_col_index))
                     elif field == 'inizio_prestito':
                         self.setItemDelegateForColumn(col, InizioPrestitoDelegate())
                     elif field == 'fine_prestito':
-                        inizio_prestito_col_index = model.fields.index('inizio_prestito')
-                        self.setItemDelegateForColumn(col, FinePrestitoDelegate(model, inizio_prestito_col_index))  # Same logic as inizio_prestito
-            if model.model_name == "fantasquadre":
-                for col, field in enumerate(model.fields):
+                        inizio_prestito_col_index = base_model.fields.index('inizio_prestito') #type: ignore
+                        self.setItemDelegateForColumn(col, FinePrestitoDelegate(base_model, inizio_prestito_col_index))
+            if base_model.model_name == "fantasquadre": #type: ignore
+                for col, field in enumerate(base_model.fields): #type: ignore
                     if field == "nome":
                         from squadra_delegate import SquadraDelegate
-                        self.setItemDelegateForColumn(col, SquadraDelegate(model))
+                        self.setItemDelegateForColumn(col, SquadraDelegate(base_model))
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -65,27 +75,16 @@ class EditableTableView(QTableView):
             Qt.Key.Key_Down
         )
 
-        # ===============================
-        # ENTER
-        # ===============================
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._handle_enter(index)
             return
 
-        # ===============================
-        # FRECCE
-        # ===============================
         if key in arrows:
             dx, dy = 0, 0
-
-            if key == Qt.Key.Key_Left:
-                dx = -1
-            elif key == Qt.Key.Key_Right:
-                dx = 1
-            elif key == Qt.Key.Key_Up:
-                dy = -1
-            elif key == Qt.Key.Key_Down:
-                dy = 1
+            if key == Qt.Key.Key_Left: dx = -1
+            elif key == Qt.Key.Key_Right: dx = 1
+            elif key == Qt.Key.Key_Up: dy = -1
+            elif key == Qt.Key.Key_Down: dy = 1
 
             self._commit_and_move(index, dx, dy)
             return
@@ -98,7 +97,7 @@ class EditableTableView(QTableView):
         
         if index.isValid():
             model = self.model()
-            model = cast(EditableTableModel, model)
+            base_model = self.get_base_model()
             
             # Last column handling
             if index.column() == model.columnCount() - 1:
@@ -106,21 +105,24 @@ class EditableTableView(QTableView):
                 
                 # Creation row: ➕ button
                 if row == 0:
-                    model.create_from_row()
+                    model.create_from_row() #type: ignore
                     return
                 
                 # Normal rows: 🗑️ or 🗑️✓❌ buttons
                 if row > 0:
+                    # Map to source row to check inside 'edited_cells' correctly
+                    source_row = row
+                    if isinstance(model, QSortFilterProxyModel):
+                        source_row = model.mapToSource(model.index(row, 0)).row()
+
                     # Check if row has pending changes
-                    has_edits = row in model.edited_cells and len(model.edited_cells[row]) > 0
+                    has_edits = source_row in base_model.edited_cells and len(base_model.edited_cells[source_row]) > 0 #type: ignore
                     
                     if has_edits:
-                        # Show a simple menu to choose between delete, confirm, and cancel
                         self._show_action_menu(event.pos(), row, model)
                         return
                     else:
-                        # Just delete
-                        model.soft_delete_row(row)
+                        model.soft_delete_row(row) #type: ignore
                         self.item_deleted.emit()
                         return
             
@@ -139,13 +141,11 @@ class EditableTableView(QTableView):
         from PySide6.QtWidgets import QMenu
         
         menu = QMenu(self)
-        
         confirm_action = menu.addAction("✓ Conferma modifiche riga")
         cancel_action = menu.addAction("❌ Cancella modifiche riga")
         menu.addSeparator()
         delete_action = menu.addAction("🗑️ Elimina riga")
         
-        # Show menu at cursor position
         global_pos = self.viewport().mapToGlobal(pos)
         action = menu.exec(global_pos)
         
@@ -154,59 +154,49 @@ class EditableTableView(QTableView):
                 model.commit_row_changes(row)
             except Exception as e:
                 from PySide6.QtWidgets import QMessageBox
-                QMessageBox.critical(
-                    self, 
-                    "Errore", 
-                    f"Errore durante il salvataggio:\n{str(e)}"
-                )
-                # Refresh model to restore proper state
-                model.refresh()
+                QMessageBox.critical(self, "Errore", f"Errore durante il salvataggio:\n{str(e)}")
+                self.get_base_model().refresh() #type: ignore
         elif action == cancel_action:
             model.cancel_row_changes(row)
         elif action == delete_action:
             model.soft_delete_row(row)
             self.item_deleted.emit()
 
-    # =====================================
-    # ENTER LOGIC
-    # =====================================
     def _handle_enter(self, index):
         if not index.isValid():
             return
 
         model = self.model()
-        model = cast(EditableTableModel, model)
+        base_model = self.get_base_model()
 
         # Last column handling
         if index.column() == model.columnCount() - 1:
             row = index.row()
             
-            # ➕ CELL: create record (row 0)
             if row == 0:
-                model.create_from_row()
+                model.create_from_row() #type: ignore
                 return
             
-            # Normal rows: handle 🗑️ or 🗑️✓❌
             if row > 0:
-                has_edits = row in model.edited_cells and len(model.edited_cells[row]) > 0
+                # Mappiamo l'indice del proxy su quello base per la verifica
+                source_row = row
+                if isinstance(model, QSortFilterProxyModel):
+                    source_row = model.mapToSource(model.index(row, 0)).row()
+
+                has_edits = source_row in base_model.edited_cells and len(base_model.edited_cells[source_row]) > 0 #type: ignore
                 
                 if has_edits:
-                    # Show menu
                     rect = self.visualRect(index)
                     pos = rect.center()
                     self._show_action_menu(pos, row, model)
                 else:
-                    # Just delete
-                    model.soft_delete_row(row)
+                    model.soft_delete_row(row) #type: ignore
                     self.item_deleted.emit()
                 return
 
         # normal cell → commit + move right
         self._commit_and_move(index, dx=1, dy=0)
 
-    # =====================================
-    # CORE LOGIC
-    # =====================================
     def _commit_and_move(self, index, dx=0, dy=0):
         if not index.isValid():
             return
@@ -225,17 +215,13 @@ class EditableTableView(QTableView):
 
         next_index = model.index(new_row, new_col)
         
-        # Close current editor if active, then move after a brief delay
         if self.state() == QTableView.State.EditingState:
-            # Defer the movement to let Qt finish the commit cycle
             QTimer.singleShot(0, lambda: self._move_to(next_index))
         else:
             self._move_to(next_index)
 
     def _move_to(self, index):
         self.setCurrentIndex(index)
-        
-        # Only try to edit if the cell is actually editable
         flags = self.model().flags(index)
         if flags & Qt.ItemFlag.ItemIsEditable:
             self.edit(index)
