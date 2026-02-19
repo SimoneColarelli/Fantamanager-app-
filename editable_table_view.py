@@ -45,6 +45,9 @@ class EditableTableView(QTableView):
                 if field == 'fascia':
                     from int_delegate import FasciaDelegate
                     self.setItemDelegateForColumn(col, FasciaDelegate())
+                if field == 'in_prestito_a':
+                    from squadra_delegate import SquadraDelegate
+                    self.setItemDelegateForColumn(col, SquadraDelegate())
                 if column_type == 'Date':
                     # Use date delegate
                     from date_delegate import DataAcquistoDelegate, ScadenzaContrattoDelegate, InizioPrestitoDelegate, FinePrestitoDelegate
@@ -58,11 +61,6 @@ class EditableTableView(QTableView):
                     elif field == 'fine_prestito':
                         inizio_prestito_col_index = base_model.fields.index('inizio_prestito') #type: ignore
                         self.setItemDelegateForColumn(col, FinePrestitoDelegate(base_model, inizio_prestito_col_index))
-            if base_model.model_name == "fantasquadre": #type: ignore
-                for col, field in enumerate(base_model.fields): #type: ignore
-                    if field == "nome":
-                        from squadra_delegate import SquadraDelegate
-                        self.setItemDelegateForColumn(col, SquadraDelegate(base_model))
 
     def keyPressEvent(self, event):
         key = event.key()

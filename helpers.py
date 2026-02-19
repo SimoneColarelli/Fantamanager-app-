@@ -1,3 +1,4 @@
+import datetime
 import math
 
 
@@ -44,3 +45,13 @@ def format_value_for_display(value):
         return str(math.trunc(value))
     else:
         return str(value)
+    
+def from_str_to_trunc_date(value):
+    "Convert a string from yyyy-mm-dd formato to truncated date (mon-YY)"
+    if not value:
+        return None
+    try:
+        date_obj = datetime.datetime.strptime(value, "%Y-%m-%d")
+        return format_date_for_display(date_obj)
+    except ValueError:
+        return value   

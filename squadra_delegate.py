@@ -1,18 +1,26 @@
 from PySide6.QtWidgets import QStyledItemDelegate, QComboBox
 from PySide6.QtCore import Qt
 
+from database import SessionLocal
+from models import Fantasquadra
+
 
 class SquadraDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
 
     def createEditor(self, parent, option, index):
-        from constants import FANTASQUADRE_NAMES
         
         editor = QComboBox(parent)
         
-        for name in FANTASQUADRE_NAMES:
-            editor.addItem(name)
+        session = SessionLocal()
+        # Ottieni tutte le fantasquadre attive
+        squadre = session.query(Fantasquadra.nome).filter_by(deleted=False).all()
+        session.close()
+
+        for name in squadre:
+            editor.addItem(name[0])
+        editor.addItem("")  # Opzione per nessuna squadra
         
         return editor
     

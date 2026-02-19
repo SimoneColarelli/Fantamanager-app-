@@ -5,6 +5,7 @@ from PySide6.QtCore import (
     QModelIndex,
     Signal
 )
+from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QColor, QFont
 from helpers import format_date_for_display, format_value_for_display
 # Import your calculation function
@@ -44,6 +45,11 @@ class EditableTableModel(QAbstractTableModel):
 
     # ---------- DATA ----------
 
+# ---------- DATA ----------
+
+    # Definiamo un ruolo custom per l'ordinamento (usa il valore grezzo invece della stringa formattata)
+    SORT_ROLE = Qt.ItemDataRole.UserRole + 1
+
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
@@ -53,23 +59,22 @@ class EditableTableModel(QAbstractTableModel):
 
         # ─── CREATION ROW (row 0) ─────────────────────────
         if row == 0:
+            if role == self.SORT_ROLE:
+                return None # Gestito appositamente nel Proxy
+                
             # ➕ button (last column)
             if col == len(self.fields):
                 if role == Qt.ItemDataRole.DisplayRole and self._can_create():
                     return "➕" 
 
                 if role == Qt.ItemDataRole.ForegroundRole:
-                    return (
-                        QColor(0, 255, 0)
-                        if self._can_create()
-                        else QColor(160, 160, 160)
-                    )
+                    return QColor(0, 255, 0) if self._can_create() else QColor(160, 160, 160)
 
                 if role == Qt.ItemDataRole.FontRole and self._can_create():
-                    font = QFont()
-                    font.setBold(True)
-                    return font
-
+                                    # Get the current application font instead of a blank one
+                                    font = QApplication.font()
+                                    font.setBold(True)
+                                    return font
                 return None
 
             field = self.fields[col]
@@ -84,10 +89,7 @@ class EditableTableModel(QAbstractTableModel):
                 return None
 
             # real value
-            if role in (
-                Qt.ItemDataRole.DisplayRole,
-                Qt.ItemDataRole.EditRole,
-            ):
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
                 return value
 
             return None
@@ -97,22 +99,17 @@ class EditableTableModel(QAbstractTableModel):
 
         # Last column: 🗑️ button or 🗑️✓❌ buttons
         if col == len(self.fields):
-            # Check if this row has pending changes
             has_edits = row in self.edited_cells and len(self.edited_cells[row]) > 0
             
             if role == Qt.ItemDataRole.DisplayRole:
-                if has_edits:
-                    return "🗑️ ✓ ❌"
-                return "🗑️"
-            
+                return "🗑️ ✓ ❌" if has_edits else "🗑️"
             if role == Qt.ItemDataRole.ForegroundRole:
                 return QColor(255, 0, 0)
-            
             if role == Qt.ItemDataRole.FontRole:
-                font = QFont()
-                font.setBold(True)
-                return font
-            
+                            # Get the current application font instead of a blank one
+                            font = QApplication.font()
+                            font.setBold(True)
+                            return font
             return None
 
         if col < len(self.fields):
@@ -121,6 +118,10 @@ class EditableTableModel(QAbstractTableModel):
             # Get value (edited or original)
             if row in self.edited_cells and field in self.edited_cells[row]:
                 value = self.edited_cells[row][field]
+                # Se è in corso l'ordinamento, convertiamo la stringa digitata nel suo tipo originale (es. data o int)
+                if role == self.SORT_ROLE:
+                    column = getattr(self.repo.model, field)
+                    value = self.repo._convert_value(value, column.type)
             else:
                 value = getattr(obj, field)
             
@@ -128,20 +129,22 @@ class EditableTableModel(QAbstractTableModel):
             if role == Qt.ItemDataRole.BackgroundRole:
                 if row in self.edited_cells and field in self.edited_cells[row]:
                     return QColor(200, 255, 200)  # Light green
+                    
+            # SE E' RICHIESTO L'ORDINAMENTO -> Restituiamo il valore grezzo (numero o data) 
+            if role == self.SORT_ROLE:
+                return value
             
-            if role in (
-                Qt.ItemDataRole.DisplayRole,
-                Qt.ItemDataRole.EditRole,
-            ):
-                # Convert None to empty string for display
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
                 if value is None:
                     return ""
-                # Format dates nicely, integer truncated and boolean in italian for display (only DisplayRole)
                 if role == Qt.ItemDataRole.DisplayRole:
-                    # Check if it's a date object
+                    from helpers import format_value_for_display
                     return format_value_for_display(value)
                 return str(value)
-
+            if self.fields[col] == "nome" and role == Qt.ItemDataRole.FontRole:
+                font = QApplication.font()
+                font.setBold(True)
+                return font
         return None
 
     # ---------- EDIT ----------

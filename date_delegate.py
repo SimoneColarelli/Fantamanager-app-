@@ -2,6 +2,8 @@ from PySide6.QtWidgets import QStyledItemDelegate, QComboBox
 from PySide6.QtCore import Qt
 from datetime import datetime
 
+from helpers import from_str_to_trunc_date
+
 
 def get_current_year_month():
     """Get current year (short form) and month (Italian abbreviation)"""
@@ -23,15 +25,20 @@ class DataAcquistoDelegate(QStyledItemDelegate):
     
     def createEditor(self, parent, option, index):
         cy, cm = get_current_year_month()
+        value = from_str_to_trunc_date(index.data(Qt.ItemDataRole.EditRole) or index.data(Qt.ItemDataRole.DisplayRole))
         
         editor = QComboBox(parent)
-        choices = [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}"]
+        choices = [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}", value] if value and value != "" else [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}"]
         
         for choice in choices:
             editor.addItem(choice)
         
         # Set default value
-        default = f"{cm}-{cy}" if f"{cm}-{cy}" in choices else f"ago-{cy}"
+        if value and value !="":
+            default = value        
+        else:
+            default = f"{cm}-{cy}" if f"{cm}-{cy}" in choices else f"ago-{cy}"
+
         default_index = choices.index(default) if default in choices else 0
         editor.setCurrentIndex(default_index)
         
@@ -64,6 +71,7 @@ class ScadenzaContrattoDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         cy, cm = get_current_year_month()
         cy_int = int(cy)
+        value = from_str_to_trunc_date(index.data(Qt.ItemDataRole.EditRole) or index.data(Qt.ItemDataRole.DisplayRole))
         
         # Get Data acquisto value from the same row
         row = index.row()
@@ -75,17 +83,24 @@ class ScadenzaContrattoDelegate(QStyledItemDelegate):
         # Determine choices based on Data acquisto
 
         if data_acquisto in [f"gen-{cy}", f"feb-{cy}"]:
-            choices = [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}"]
-            default = choices[0]  # lug-(cy+2)
+            choices = [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}", value] if value and value != "" else [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}"]
+            if value and value != "":
+                default = value
+            else:
+                default = choices[0]  # lug-(cy+2)
         else:
-            choices = [f"lug-{cy_int + 3:02d}", f"lug-{cy_int + 4:02d}"]
-            default = choices[0]  # lug-(cy+3)
+            choices = [f"lug-{cy_int + 3:02d}", f"lug-{cy_int + 4:02d}", value] if value and value != "" else [f"lug-{cy_int + 3:02d}", f"lug-{cy_int + 4:02d}"]
+            if value and value != "":
+                default = value
+            else:
+                default = choices[0]  # lug-(cy+3)
         
         for choice in choices:
             editor.addItem(choice)
         
         # Set default
-        editor.setCurrentIndex(0)
+        default_index = choices.index(default) if default in choices else 0
+        editor.setCurrentIndex(default_index)
         
         return editor
     
@@ -109,15 +124,20 @@ class InizioPrestitoDelegate(QStyledItemDelegate):
     
     def createEditor(self, parent, option, index):
         cy, cm = get_current_year_month()
+        value = from_str_to_trunc_date(index.data(Qt.ItemDataRole.EditRole) or index.data(Qt.ItemDataRole.DisplayRole))
+
         
         editor = QComboBox(parent)
-        choices = [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}", ""]
+        choices = [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}", value, ""] if value and value != "" and value != "nuovo inizio prestito" else [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}", ""]
         
         for choice in choices:
             editor.addItem(choice)
         
         # Set default value
-        default = ""
+        if value and value != "":
+            default = value
+        else:
+            default = f"{cm}-{cy}" if f"{cm}-{cy}" in choices else f"ago-{cy}"
         default_index = choices.index(default) if default in choices else 0
         editor.setCurrentIndex(default_index)
         
@@ -149,17 +169,28 @@ class FinePrestitoDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         cy, cm = get_current_year_month()
         cy_int = int(cy)
+        value = from_str_to_trunc_date(index.data(Qt.ItemDataRole.EditRole) or index.data(Qt.ItemDataRole.DisplayRole))
         
         # Get inizio prestito value from the same row
         row = index.row()
         inizio_prestito_index = self.model.index(row, self.inizio_prestito_col)
-        inizio_prestito = self.model.data(inizio_prestito_index, Qt.ItemDataRole.DisplayRole)
+        inizio_prestito = self.model.data(inizio_prestito_index, Qt.ItemDataRole.DisplayRole) or self.model.data(inizio_prestito_index, Qt.ItemDataRole.EditRole)
+        inizio_prestito = from_str_to_trunc_date(inizio_prestito)
         
         editor = QComboBox(parent)
         
         # Choices: gen-(cy+1), lug-(cy+1), lug-(cy+2), lug-cy, cm-(cy+1), cm-(cy+2)
         choices = [
             f"gen-{cy_int + 1:02d}",
+            f"lug-{cy_int + 1:02d}",
+            f"lug-{cy_int + 2:02d}",
+            f"lug-{cy}",
+            f"{cm}-{cy_int + 1:02d}",
+            f"{cm}-{cy_int + 2:02d}",
+            value,
+            ""
+        ] if value and value != "" and value != "nuovo fine prestito" else [
+            f"gen-{cy_int + 1:02d}",    
             f"lug-{cy_int + 1:02d}",
             f"lug-{cy_int + 2:02d}",
             f"lug-{cy}",
@@ -172,12 +203,15 @@ class FinePrestitoDelegate(QStyledItemDelegate):
             editor.addItem(choice)
         
         # Default: gen-(cy+1) if Data acquisto is ago-cy or set-cy, else lug-cy
-        if inizio_prestito in [f"ago-{cy}", f"set-{cy}"]:
-            default = f"gen-{cy_int + 1:02d}"
-        elif inizio_prestito == "":
-            default = ""
+        if value and value != "":
+            default = value
         else:
-            default = f"lug-{cy}"
+            if inizio_prestito in [f"ago-{cy}", f"set-{cy}"]:
+                    default = f"gen-{cy_int + 1:02d}"
+            elif inizio_prestito == "":
+                default = ""
+            else:
+                default = f"lug-{cy}"
         
         default_index = choices.index(default) if default in choices else 0
         editor.setCurrentIndex(default_index)
