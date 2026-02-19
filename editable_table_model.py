@@ -25,6 +25,7 @@ class EditableTableModel(QAbstractTableModel):
         self.new_row = {f: "" for f in self.fields}
         self.edited_cells = {}  # {row: {field: value}}
         self.original_values = {}  # {row: {field: original_value}}
+        self.current_row = -1
         self.refresh()
 
     # ---------- BASIC ----------
@@ -36,6 +37,30 @@ class EditableTableModel(QAbstractTableModel):
         self.original_values = {}
         self.endResetModel()
         self.has_pending_changes.emit(False)
+    
+    def set_current_row(self, row):
+        """Aggiorna la riga selezionata ed emette un segnale per ricolorarla"""
+        if getattr(self, 'current_row', -1) == row:
+            return
+            
+        old_row = getattr(self, 'current_row', -1)
+        self.current_row = row
+        
+        # Ricolora la riga precedente (per togliere il grigio)
+        if 0 <= old_row < self.rowCount():
+            self.dataChanged.emit(
+                self.index(old_row, 0), 
+                self.index(old_row, self.columnCount() - 1), 
+                [Qt.ItemDataRole.BackgroundRole]
+            )
+            
+        # Ricolora la nuova riga (per mettere il grigio)
+        if 0 <= self.current_row < self.rowCount():
+            self.dataChanged.emit(
+                self.index(self.current_row, 0), 
+                self.index(self.current_row, self.columnCount() - 1), 
+                [Qt.ItemDataRole.BackgroundRole]
+            )
 
     def rowCount(self, parent=QModelIndex()):
         return len(self.rows) + 1  # creation row
@@ -59,6 +84,10 @@ class EditableTableModel(QAbstractTableModel):
 
         # ─── CREATION ROW (row 0) ─────────────────────────
         if row == 0:
+            if role == Qt.ItemDataRole.BackgroundRole:
+                            if getattr(self, 'current_row', -1) == 0:
+                                return QColor(240, 240, 240)
+                            return None
             if role == self.SORT_ROLE:
                 return None # Gestito appositamente nel Proxy
                 
@@ -100,6 +129,10 @@ class EditableTableModel(QAbstractTableModel):
         # Last column: 🗑️ button or 🗑️✓❌ buttons
         if col == len(self.fields):
             has_edits = row in self.edited_cells and len(self.edited_cells[row]) > 0
+
+            if role == Qt.ItemDataRole.BackgroundRole:
+                if getattr(self, 'current_row', -1) == row:
+                    return QColor(240, 240, 240)
             
             if role == Qt.ItemDataRole.DisplayRole:
                 return "🗑️ ✓ ❌" if has_edits else "🗑️"
@@ -127,8 +160,12 @@ class EditableTableModel(QAbstractTableModel):
             
             # Background color for edited cells
             if role == Qt.ItemDataRole.BackgroundRole:
+                # 1. Priorità massima: le celle modificate restano verdi
                 if row in self.edited_cells and field in self.edited_cells[row]:
                     return QColor(200, 255, 200)  # Light green
+                # 2. Se non è modificata e la riga è selezionata, colorala di grigio chiaro
+                if getattr(self, 'current_row', -1) == row:
+                    return QColor(240, 240, 240)  # Light grey
                     
             # SE E' RICHIESTO L'ORDINAMENTO -> Restituiamo il valore grezzo (numero o data) 
             if role == self.SORT_ROLE:

@@ -16,6 +16,14 @@ class EditableTableView(QTableView):
     def __init__(self):
         super().__init__()
         self._boolean_delegate = BooleanDelegate()
+        # Rimuove lo sfondo blu standard di Qt dalla cella selezionata 
+        # in modo che il colore grigio chiaro del nostro modello sia visibile
+        self.setStyleSheet("""
+            QTableView::item:selected {
+                background-color: transparent;
+                color: black;
+            }
+        """)
 
     def get_base_model(self):
         """Helper to get the original EditableTableModel, bypassing any Proxy."""
@@ -61,6 +69,27 @@ class EditableTableView(QTableView):
                     elif field == 'fine_prestito':
                         inizio_prestito_col_index = base_model.fields.index('inizio_prestito') #type: ignore
                         self.setItemDelegateForColumn(col, FinePrestitoDelegate(base_model, inizio_prestito_col_index))
+    
+    def currentChanged(self, current, previous):
+        """Intercetta il cambio di selezione e lo comunica al modello"""
+        super().currentChanged(current, previous)
+        
+        if current.isValid():
+            model = self.model()
+            
+            # Supporto universale: gestisce sia il modello diretto che il ProxyModel di ricerca
+            from PySide6.QtCore import QSortFilterProxyModel
+            if isinstance(model, QSortFilterProxyModel):
+                source_index = model.mapToSource(current)
+                source_row = source_index.row()
+                base_model = model.sourceModel()
+            else:
+                source_row = current.row()
+                base_model = model
+                
+            # Comunica al modello quale riga evidenziare
+            if hasattr(base_model, 'set_current_row'):
+                base_model.set_current_row(source_row) #type: ignore
 
     def keyPressEvent(self, event):
         key = event.key()

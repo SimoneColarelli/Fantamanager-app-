@@ -21,6 +21,21 @@ class SquadraDelegate(QStyledItemDelegate):
         for name in squadre:
             editor.addItem(name[0])
         editor.addItem("")  # Opzione per nessuna squadra
+
+        # Set default value
+        # When i'm not in a creation row: if it has already a squadra value, set it as default in the combo,
+        # otherwise set default to empty (nessuna squadra)
+        if index != 0:
+            if index.data(Qt.ItemDataRole.EditRole) is not None:
+                default = index.data(Qt.ItemDataRole.EditRole)
+                idx = editor.findText(default)
+            else: idx = editor.findText("")
+        
+        # When i'm in a creation row: set default to empty (nessuna squadra)
+        else:
+            idx = editor.findText("")
+            
+        editor.setCurrentIndex(idx)
         
         return editor
     

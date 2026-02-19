@@ -134,10 +134,16 @@ class InizioPrestitoDelegate(QStyledItemDelegate):
             editor.addItem(choice)
         
         # Set default value
-        if value and value != "":
-            default = value
+
+        # When i'm not in a creation row: if it has already a value, set it as default in the combo, otherwise set default to empty (nessun prestito)
+        if index != 0:
+            if value:
+                default = value
+            else:
+                default = ""
         else:
             default = f"{cm}-{cy}" if f"{cm}-{cy}" in choices else f"ago-{cy}"
+
         default_index = choices.index(default) if default in choices else 0
         editor.setCurrentIndex(default_index)
         
@@ -202,9 +208,11 @@ class FinePrestitoDelegate(QStyledItemDelegate):
         for choice in choices:
             editor.addItem(choice)
         
-        # Default: gen-(cy+1) if Data acquisto is ago-cy or set-cy, else lug-cy
-        if value and value != "":
-            default = value
+        # If i'm not in a creation row: if it has already a value, set it as default in the combo, otherwise set default based on inizio prestito value:
+        if index != 0:
+            if value:
+                default = value
+            else: default = ""
         else:
             if inizio_prestito in [f"ago-{cy}", f"set-{cy}"]:
                     default = f"gen-{cy_int + 1:02d}"
