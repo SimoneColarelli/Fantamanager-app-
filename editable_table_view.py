@@ -1,6 +1,6 @@
 from typing import cast
-from PySide6.QtWidgets import QTableView, QAbstractItemDelegate, QMessageBox
-from PySide6.QtCore import Qt, QTimer, Signal, QPoint, QSortFilterProxyModel
+from PySide6.QtWidgets import QTableView, QAbstractItemDelegate, QMessageBox, QWidget
+from PySide6.QtCore import QModelIndex, Qt, QTimer, Signal, QPoint, QSortFilterProxyModel
 from PySide6.QtGui import QCursor
 
 from editable_table_model import EditableTableModel
@@ -222,7 +222,36 @@ class EditableTableView(QTableView):
                 return
 
         # normal cell → commit + move right
-        self._commit_and_move(index, dx=1, dy=0)
+        # normal cell → save row changes to DB (if any), then move right
+        model = self.model()
+        base_model = self.get_base_model()
+        row = index.row()
+
+        # Map proxy row to source row
+        source_row = row
+        if isinstance(model, QSortFilterProxyModel):
+            source_row = model.mapToSource(model.index(row, 0)).row()
+
+        # Commit this row's pending changes to the database
+        if source_row in base_model.edited_cells and base_model.edited_cells[source_row]:  # type: ignore
+            try:
+                model.commit_row_changes(row)  # type: ignore
+            except Exception as e:
+                QMessageBox.critical(self, "Errore", f"Errore durante il salvataggio:\n{str(e)}")
+                base_model.refresh()  # type: ignore
+                return
+        if index.row() == 0:
+            self._commit_and_move(index, dx=1, dy=0)
+        else:
+            QTimer.singleShot(0, lambda: self.a())
+
+    def a(self):
+        self.setCurrentIndex(self.model().index(-1, -1))
+        self.clearSelection()
+        base_model = self.get_base_model()
+        if hasattr(base_model, 'set_current_row'):
+            base_model.set_current_row(-1) #type: ignore
+
 
     def _commit_and_move(self, index, dx=0, dy=0):
         if not index.isValid():
@@ -252,3 +281,18 @@ class EditableTableView(QTableView):
         flags = self.model().flags(index)
         if flags & Qt.ItemFlag.ItemIsEditable:
             self.edit(index)
+    
+    def deselect(self):
+        """Clear selection and reset the current_row highlight in the model."""
+        # Gracefully close any open editor first
+        persistent = self.indexWidget(self.currentIndex())
+        if self.state() == QTableView.State.EditingState:
+            self.commitData(persistent)
+            self.closeEditor(persistent, QAbstractItemDelegate.EndEditHint.NoHint)
+
+        self.clearSelection()
+        self.setCurrentIndex(self.model().index(-1, -1))
+
+        base_model = self.get_base_model()
+        if hasattr(base_model, 'set_current_row'):
+            base_model.set_current_row(-1) #type: ignore

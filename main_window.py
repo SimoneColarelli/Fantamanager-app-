@@ -208,3 +208,18 @@ class MainWindow(QMainWindow):
                 self.g_squadra_combo.setCurrentIndex(0)
                 
             self.g_squadra_combo.blockSignals(False)
+
+    def mousePressEvent(self, event):
+        """Deselect the active table when the user clicks outside of it."""
+        super().mousePressEvent(event)
+
+        # Determine which view is currently active (based on selected tab)
+        current_tab = self.tabs.currentIndex()
+        active_view = self.g_view if current_tab == 0 else self.f_view
+
+        # Map the click position to the viewport of the active table
+        pos_in_viewport = active_view.viewport().mapFromGlobal(event.globalPosition().toPoint())
+        clicked_on_table = active_view.viewport().rect().contains(pos_in_viewport)
+
+        if not clicked_on_table:
+            active_view.deselect()

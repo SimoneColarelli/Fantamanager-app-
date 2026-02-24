@@ -82,8 +82,9 @@ class ScadenzaContrattoDelegate(QStyledItemDelegate):
         
         # Determine choices based on Data acquisto
 
+
         if data_acquisto in [f"gen-{cy}", f"feb-{cy}"]:
-            choices = [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}", value] if value and value != "" else [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}"]
+            choices = [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}", value] if value and value != "" and index.row() > 0 else [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}"]
             if value and value != "":
                 default = value
             else:
@@ -136,13 +137,13 @@ class InizioPrestitoDelegate(QStyledItemDelegate):
         # Set default value
 
         # When i'm not in a creation row: if it has already a value, set it as default in the combo, otherwise set default to empty (nessun prestito)
-        if index != 0:
+        if index.row() != 0:
             if value:
                 default = value
             else:
                 default = ""
         else:
-            default = f"{cm}-{cy}" if f"{cm}-{cy}" in choices else f"ago-{cy}"
+            default = "" # In creation row, default to empty (nessun prestito)
 
         default_index = choices.index(default) if default in choices else 0
         editor.setCurrentIndex(default_index)
@@ -209,17 +210,14 @@ class FinePrestitoDelegate(QStyledItemDelegate):
             editor.addItem(choice)
         
         # If i'm not in a creation row: if it has already a value, set it as default in the combo, otherwise set default based on inizio prestito value:
-        if index != 0:
+        if index.row() != 0:
             if value:
                 default = value
             else: default = ""
         else:
             if inizio_prestito in [f"ago-{cy}", f"set-{cy}"]:
                     default = f"gen-{cy_int + 1:02d}"
-            elif inizio_prestito == "":
-                default = ""
-            else:
-                default = f"lug-{cy}"
+            else: default = ""
         
         default_index = choices.index(default) if default in choices else 0
         editor.setCurrentIndex(default_index)
