@@ -35,6 +35,7 @@ class EditableTableModel(QAbstractTableModel):
         self.rows = self.repo.all()
         self.edited_cells = {}
         self.original_values = {}
+        self.new_row = {f: "" for f in self.fields}
         self.endResetModel()
         self.has_pending_changes.emit(False)
     
@@ -179,6 +180,10 @@ class EditableTableModel(QAbstractTableModel):
                     return format_value_for_display(value)
                 return str(value)
             if self.fields[col] == "nome" and role == Qt.ItemDataRole.FontRole:
+                font = QApplication.font()
+                font.setBold(True)
+                return font
+            if self.fields[col] == "valore_svincolo" and role == Qt.ItemDataRole.FontRole:
                 font = QApplication.font()
                 font.setBold(True)
                 return font
