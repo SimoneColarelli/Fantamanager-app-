@@ -1,0 +1,10 @@
+Next features:
+- Main calculation features:
+	- Complete update of players
+	- Only quotazione update
+	- Only in serie a update
+
+- Mercato:
+	- definition of a new model: operazione di mercato
+	- connection between an operazione di mercato and giocatori and fantasquadre tables
+	

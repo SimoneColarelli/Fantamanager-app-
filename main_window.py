@@ -1,4 +1,5 @@
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QSplitter, QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, QComboBox
+import openpyxl
+from PySide6.QtWidgets import QMainWindow, QTabWidget, QSplitter, QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, QComboBox, QFileDialog, QPushButton, QLabel, QMessageBox
 from search_proxy_model import SearchProxyModel
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
@@ -23,6 +24,34 @@ class MainWindow(QMainWindow):
         Fantasquadra.metadata.create_all(engine)
 
         session = SessionLocal()
+
+        # === VARIABILE DI STATO DELLE QUOTAZIONI ===
+        # Dizionario che avrà come chiave il Nome (4a colonna) e come valore la Quotazione (9a colonna)
+        self.quotazioni_data = {} 
+        
+        # === BARRA GRAFICA QUOTAZIONI ===
+        self.quotazioni_bar = QWidget()
+        quotazioni_layout = QHBoxLayout(self.quotazioni_bar)
+        quotazioni_layout.setContentsMargins(10, 5, 10, 5) # Piccoli margini
+        
+        # Bottone Upload
+        self.btn_upload_quotazioni = QPushButton("📂 Carica file Quotazioni (.xlsx)")
+        self.btn_upload_quotazioni.clicked.connect(self._upload_quotazioni)
+        
+        # Etichetta di Stato
+        self.lbl_quotazioni_status = QLabel("Stato: 🔴 Non Caricate")
+        self.lbl_quotazioni_status.setStyleSheet("color: red; font-weight: bold;")
+        
+        # Bottone Pulisci Dati
+        self.btn_clear_quotazioni = QPushButton("🗑️ Svuota Quotazioni")
+        self.btn_clear_quotazioni.clicked.connect(self._clear_quotazioni)
+        self.btn_clear_quotazioni.setEnabled(False) # Disabilitato all'inizio
+        
+        # Aggiungo i widget al layout orizzontale
+        quotazioni_layout.addWidget(self.btn_upload_quotazioni)
+        quotazioni_layout.addWidget(self.lbl_quotazioni_status)
+        quotazioni_layout.addStretch() # Spinge il bottone 'Svuota' verso destra
+        quotazioni_layout.addWidget(self.btn_clear_quotazioni)
 
         self.tabs = QTabWidget()
 
@@ -88,6 +117,7 @@ class MainWindow(QMainWindow):
         g_main_widget = QWidget()
         g_main_layout = QVBoxLayout(g_main_widget)
         g_main_layout.setContentsMargins(0, 0, 0, 0)
+        g_main_layout.addWidget(self.quotazioni_bar)  # Aggiungi la barra delle quotazioni sopra
         g_main_layout.addLayout(filter_layout)
         g_main_layout.addWidget(g_table_widget)
 
@@ -223,3 +253,72 @@ class MainWindow(QMainWindow):
 
         if not clicked_on_table:
             active_view.deselect()
+    def _upload_quotazioni(self):
+        """Apre un file dialog, legge l'Excel e popola la variabile di stato"""
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Seleziona file Quotazioni", 
+            "", 
+            "File Excel (*.xlsx)"
+        )
+        
+        if not filepath:
+            return # L'utente ha annullato
+            
+        try:
+            # Apriamo il file Excel (usando data_only per leggere i valori, non le formule)
+            workbook = openpyxl.load_workbook(filepath, data_only=True)
+            
+            # Prendiamo il foglio attivo (solitamente "Tutti")
+            sheet = workbook.active
+            
+            self.quotazioni_data.clear()
+            
+            # Iteriamo le righe. sheet.iter_rows parte da 1. 
+            # I dati reali partono solitamente dalla riga 3 (riga 1: titolo, riga 2: headers)
+            for row in sheet.iter_rows(min_row=3, values_only=True): #type: ignore
+                # Assicuriamoci che la riga abbia abbastanza colonne (almeno 9)
+                if len(row) >= 9:
+                    nome = row[3]  # 4a cella (indice 3): Nome
+                    quotazione = row[8] # 9a cella (indice 8): Qt.A M
+                    
+                    if nome and isinstance(nome, str): # Controllo di sicurezza
+                        # Salviamo nel dizionario
+                        self.quotazioni_data[nome.strip()] = quotazione
+
+            # Se abbiamo caricato dati con successo, aggiorniamo l'interfaccia
+            print(self.quotazioni_data) # Debug: stampa le quotazioni caricate
+            if self.quotazioni_data:
+                conteggio = len(self.quotazioni_data)
+                self.lbl_quotazioni_status.setText(f"Stato: 🟢 Caricate ({conteggio} giocatori)")
+                self.lbl_quotazioni_status.setStyleSheet("color: green; font-weight: bold;")
+                self.btn_clear_quotazioni.setEnabled(True)
+                
+                QMessageBox.information(self, "Successo", f"Dati caricati! Letti {conteggio} giocatori.")
+            else:
+                QMessageBox.warning(self, "Attenzione", "File elaborato, ma non è stato trovato alcun giocatore.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", f"Impossibile leggere il file:\n{str(e)}")
+
+    def _clear_quotazioni(self):
+        """Svuota la variabile di stato previa conferma e ripristina l'interfaccia"""
+        
+        # 1. Chiediamo conferma all'utente
+        risposta = QMessageBox.question(
+            self,
+            "Conferma Svuotamento",
+            "Sei sicuro di voler svuotare le quotazioni attualmente in memoria?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No  # Tasto predefinito di sicurezza
+        )
+        
+        # 2. Se l'utente clicca su "Yes", procediamo con la pulizia
+        if risposta == QMessageBox.StandardButton.Yes:
+            self.quotazioni_data.clear()
+            
+            self.lbl_quotazioni_status.setText("Stato: 🔴 Non Caricate")
+            self.lbl_quotazioni_status.setStyleSheet("color: red; font-weight: bold;")
+            self.btn_clear_quotazioni.setEnabled(False)
+            
+            QMessageBox.information(self, "Dati Cancellati", "Le quotazioni sono state rimosse correttamente.")
