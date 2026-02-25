@@ -4,6 +4,10 @@ Next features:
 	- Only quotazione update
 	- Only in serie a update
 
+- Test calculation features
+
+- Repair the refresh function, it does not work
+
 - Mercato:
 	- definition of a new model: operazione di mercato
 	- connection between an operazione di mercato and giocatori and fantasquadre tables

@@ -415,6 +415,9 @@ class EditableTableModel(QAbstractTableModel):
             
             self.edited_cells = {}
             self.original_values = {}
+
+            # ✅ FIX: use refresh() instead of bare begin/endResetModel so rows reload
+            self.refresh()
             
             # Refresh to update display
             self.beginResetModel()
@@ -431,6 +434,8 @@ class EditableTableModel(QAbstractTableModel):
         """Cancel all pending changes"""
         self.edited_cells = {}
         self.original_values = {}
+
+        self.refresh()
         
         # Refresh to update display
         self.beginResetModel()

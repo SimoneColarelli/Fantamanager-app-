@@ -132,6 +132,11 @@ class TableWithEditButtons(QWidget):
                     return
             
             model.refresh()
+
+            # ✅ FIX: invalidate the proxy so it re-filters and re-sorts with fresh data
+            proxy = self.view.model()
+            if isinstance(proxy, QSortFilterProxyModel):
+                proxy.invalidate()
             
             # Visual feedback: briefly change button color
             original_style = self.refresh_btn.styleSheet()
