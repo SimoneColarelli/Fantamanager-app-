@@ -4,7 +4,7 @@ def prettify(name: str) -> str:
 GIOCATORI_FIELDS = ["nome", "squadra", "spesa", "data_acquisto", "fascia", "quotazione", "dq", "valore_svincolo", "scadenza_contratto", "in_prestito_a", "inizio_prestito", "fine_prestito", "convocato", "in_serie_a"]
 GIOCATORI_HEADERS = [prettify(field) for field in GIOCATORI_FIELDS]
 
-FANTASQUADRE_FIELDS = ["nome", "fm", "campionati", "coppe", "supercoppe"]
+FANTASQUADRE_FIELDS = ["nome", "fm", "campionati", "coppe", "supercoppe", "in_rosa", "convocati"]
 FANTASQUADRE_HEADERS = [prettify(field) for field in FANTASQUADRE_FIELDS]
 
 def calculate_fascia(spesa: int) -> int:
@@ -21,8 +21,8 @@ def calculate_fascia(spesa: int) -> int:
     elif spesa >= 600:
         return 6
     else:
-        return 0  # Invalid fascia, can be handled as needed
-    
+        return 0
+
 FANTASQUADRE_NAMES = ["Zarro Team", 
                       "I Cammelloni",
                       "Bomberonoi",

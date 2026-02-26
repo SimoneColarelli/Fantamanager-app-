@@ -14,13 +14,21 @@ class Repository:
         return self.session_factory()
 
     def all(self):
-        session = self._fresh_session()
+        """
+        Load all active records and merge them into the write session so that
+        any later setattr + session.commit() actually persists to the DB.
+        """
+        fresh = self._fresh_session()
         try:
-            results = session.query(self.model).filter_by(deleted=False).all()
-            session.expunge_all()  # Detach objects from this session
-            return results
+            results = fresh.query(self.model).filter_by(deleted=False).all()
+            fresh.expunge_all()
         finally:
-            session.close()
+            fresh.close()
+
+        # Merge every detached object into the persistent write session so
+        # edits made via setattr() are tracked and committed correctly.
+        merged = [self.session.merge(obj) for obj in results]
+        return merged
 
     def all_deleted(self):
         session = self._fresh_session()
@@ -49,7 +57,6 @@ class Repository:
         self.session.commit()
     
     def soft_delete(self, obj):
-        # Re-attach to write session if needed
         if obj not in self.session:
             obj = self.session.merge(obj)
         obj.deleted = True

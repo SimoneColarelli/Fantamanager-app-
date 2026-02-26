@@ -42,6 +42,10 @@ class EditableTableView(QTableView):
             
             # Set boolean delegate for boolean columns
             for col, field in enumerate(base_model.fields): #type: ignore
+                # Skip computed fields — they have no DB column to inspect
+                if field in base_model.computed_fields: #type: ignore
+                    continue
+
                 column = getattr(base_model.repo.model, field) #type: ignore
                 column_type = type(column.type).__name__
                 
@@ -205,7 +209,6 @@ class EditableTableView(QTableView):
                 return
             
             if row > 0:
-                # Mappiamo l'indice del proxy su quello base per la verifica
                 source_row = row
                 if isinstance(model, QSortFilterProxyModel):
                     source_row = model.mapToSource(model.index(row, 0)).row()
@@ -221,18 +224,14 @@ class EditableTableView(QTableView):
                     self.item_deleted.emit()
                 return
 
-        # normal cell → commit + move right
-        # normal cell → save row changes to DB (if any), then move right
         model = self.model()
         base_model = self.get_base_model()
         row = index.row()
 
-        # Map proxy row to source row
         source_row = row
         if isinstance(model, QSortFilterProxyModel):
             source_row = model.mapToSource(model.index(row, 0)).row()
 
-        # Commit this row's pending changes to the database
         if source_row in base_model.edited_cells and base_model.edited_cells[source_row]:  # type: ignore
             try:
                 model.commit_row_changes(row)  # type: ignore
@@ -284,7 +283,6 @@ class EditableTableView(QTableView):
     
     def deselect(self):
         """Clear selection and reset the current_row highlight in the model."""
-        # Gracefully close any open editor first
         persistent = self.indexWidget(self.currentIndex())
         if self.state() == QTableView.State.EditingState:
             self.commitData(persistent)

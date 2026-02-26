@@ -15,13 +15,17 @@ from repository import Repository
 class EditableTableModel(QAbstractTableModel):
     
     has_pending_changes = Signal(bool)  # Signal when pending changes state changes
-    
-    def __init__(self, repository, fields, headers):
+    rows_committed = Signal()           # Signal emitted after any successful commit
+
+    def __init__(self, repository, fields, headers, computed_fields=None):
         super().__init__()
         self.repo : Repository = repository
         self.model_name = repository.model.__tablename__
         self.fields = fields
         self.headers = headers + [""]  # Add empty header for ➕/🗑️/✓/❌ column
+        # computed_fields: {field_name: callable(obj) -> display_value}
+        # These fields are display-only; never edited or written to the DB.
+        self.computed_fields = computed_fields or {}
         self.new_row = {f: "" for f in self.fields}
         self.edited_cells = {}  # {row: {field: value}}
         self.original_values = {}  # {row: {field: original_value}}
@@ -40,14 +44,12 @@ class EditableTableModel(QAbstractTableModel):
         self.has_pending_changes.emit(False)
     
     def set_current_row(self, row):
-        """Aggiorna la riga selezionata ed emette un segnale per ricolorarla"""
         if getattr(self, 'current_row', -1) == row:
             return
             
         old_row = getattr(self, 'current_row', -1)
         self.current_row = row
         
-        # Ricolora la riga precedente (per togliere il grigio)
         if 0 <= old_row < self.rowCount():
             self.dataChanged.emit(
                 self.index(old_row, 0), 
@@ -55,7 +57,6 @@ class EditableTableModel(QAbstractTableModel):
                 [Qt.ItemDataRole.BackgroundRole]
             )
             
-        # Ricolora la nuova riga (per mettere il grigio)
         if 0 <= self.current_row < self.rowCount():
             self.dataChanged.emit(
                 self.index(self.current_row, 0), 
@@ -71,9 +72,6 @@ class EditableTableModel(QAbstractTableModel):
 
     # ---------- DATA ----------
 
-# ---------- DATA ----------
-
-    # Definiamo un ruolo custom per l'ordinamento (usa il valore grezzo invece della stringa formattata)
     SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
@@ -86,31 +84,34 @@ class EditableTableModel(QAbstractTableModel):
         # ─── CREATION ROW (row 0) ─────────────────────────
         if row == 0:
             if role == Qt.ItemDataRole.BackgroundRole:
-                            if getattr(self, 'current_row', -1) == 0:
-                                return QColor(240, 240, 240)
-                            return None
+                if getattr(self, 'current_row', -1) == 0:
+                    return QColor(240, 240, 240)
+                return None
             if role == self.SORT_ROLE:
-                return None # Gestito appositamente nel Proxy
-                
-            # ➕ button (last column)
+                return None
+
             if col == len(self.fields):
                 if role == Qt.ItemDataRole.DisplayRole and self._can_create():
-                    return "➕" 
-
+                    return "➕"
                 if role == Qt.ItemDataRole.ForegroundRole:
                     return QColor(0, 255, 0) if self._can_create() else QColor(160, 160, 160)
-
                 if role == Qt.ItemDataRole.FontRole and self._can_create():
-                                    # Get the current application font instead of a blank one
-                                    font = QApplication.font()
-                                    font.setBold(True)
-                                    return font
+                    font = QApplication.font()
+                    font.setBold(True)
+                    return font
                 return None
 
             field = self.fields[col]
+
+            if field in self.computed_fields:
+                if role == Qt.ItemDataRole.DisplayRole:
+                    return "—"
+                if role == Qt.ItemDataRole.ForegroundRole:
+                    return QColor(160, 160, 160)
+                return None
+
             value = self.new_row[field]
 
-            # placeholder
             if value == "":
                 if role == Qt.ItemDataRole.DisplayRole:
                     return f"nuovo {field.replace('_', ' ')}"
@@ -118,7 +119,6 @@ class EditableTableModel(QAbstractTableModel):
                     return QColor(160, 160, 160)
                 return None
 
-            # real value
             if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
                 return value
 
@@ -127,48 +127,55 @@ class EditableTableModel(QAbstractTableModel):
         # ─── NORMAL ROWS ─────────────────────────────────
         obj = self.rows[row - 1]
 
-        # Last column: 🗑️ button or 🗑️✓❌ buttons
         if col == len(self.fields):
             has_edits = row in self.edited_cells and len(self.edited_cells[row]) > 0
 
             if role == Qt.ItemDataRole.BackgroundRole:
                 if getattr(self, 'current_row', -1) == row:
                     return QColor(240, 240, 240)
-            
+
             if role == Qt.ItemDataRole.DisplayRole:
                 return "🗑️ ✓ ❌" if has_edits else "🗑️"
             if role == Qt.ItemDataRole.ForegroundRole:
                 return QColor(255, 0, 0)
             if role == Qt.ItemDataRole.FontRole:
-                            # Get the current application font instead of a blank one
-                            font = QApplication.font()
-                            font.setBold(True)
-                            return font
+                font = QApplication.font()
+                font.setBold(True)
+                return font
             return None
 
         if col < len(self.fields):
             field = self.fields[col]
-            
-            # Get value (edited or original)
+
+            # ── COMPUTED FIELD ──────────────────────────────
+            if field in self.computed_fields:
+                if role == Qt.ItemDataRole.BackgroundRole:
+                    if getattr(self, 'current_row', -1) == row:
+                        return QColor(240, 240, 240)
+                    return None
+                if role == self.SORT_ROLE:
+                    return self.computed_fields[field](obj)
+                if role == Qt.ItemDataRole.DisplayRole:
+                    return str(self.computed_fields[field](obj))
+                if role == Qt.ItemDataRole.ForegroundRole:
+                    return QColor(100, 100, 100)
+                return None
+            # ────────────────────────────────────────────────
+
             if row in self.edited_cells and field in self.edited_cells[row]:
                 value = self.edited_cells[row][field]
-                # Se è in corso l'ordinamento, convertiamo la stringa digitata nel suo tipo originale (es. data o int)
                 if role == self.SORT_ROLE:
                     column = getattr(self.repo.model, field)
                     value = self.repo._convert_value(value, column.type)
             else:
                 value = getattr(obj, field)
             
-            # Background color for edited cells
             if role == Qt.ItemDataRole.BackgroundRole:
-                # 1. Priorità massima: le celle modificate restano verdi
                 if row in self.edited_cells and field in self.edited_cells[row]:
-                    return QColor(200, 255, 200)  # Light green
-                # 2. Se non è modificata e la riga è selezionata, colorala di grigio chiaro
+                    return QColor(200, 255, 200)
                 if getattr(self, 'current_row', -1) == row:
-                    return QColor(240, 240, 240)  # Light grey
+                    return QColor(240, 240, 240)
                     
-            # SE E' RICHIESTO L'ORDINAMENTO -> Restituiamo il valore grezzo (numero o data) 
             if role == self.SORT_ROLE:
                 return value
             
@@ -198,123 +205,91 @@ class EditableTableModel(QAbstractTableModel):
         row = index.row()
         col = index.column()
 
+        if col < len(self.fields) and self.fields[col] in self.computed_fields:
+            return False
+
         # CREATION ROW
         if row == 0 and col < len(self.fields):
             field_name = self.fields[col]
             
-            # 1. Update the value the user just typed
             self.new_row[field_name] = value
             self.dataChanged.emit(index, index)
             
-            # 2. AUTOMATIC LOGIC: Only run this when 'spesa' is the field being edited
             if field_name == "spesa":
                 try:
-                    # value comes in as string from QLineEdit usually, convert to int
                     spesa_val = int(value) if value else 0
                     
-                    # --- Update FASCIA ---
                     if "fascia" in self.fields:
                         new_fascia = calculate_fascia(spesa_val)
                         self.new_row["fascia"] = str(new_fascia)
-                        # Notify view
                         idx = self.index(0, self.fields.index("fascia"))
                         self.dataChanged.emit(idx, idx)
 
-                    # --- Update VALORE SVINCOLO (Same as Spesa) ---
                     if "valore_svincolo" in self.fields:
                         self.new_row["valore_svincolo"] = str(spesa_val)
-                        # Notify view
                         idx = self.index(0, self.fields.index("valore_svincolo"))
                         self.dataChanged.emit(idx, idx)
                         
-                    # --- Update DQ (Default to 0) ---
                     if "dq" in self.fields:
                         self.new_row["dq"] = "0"
-                        # Notify view
                         idx = self.index(0, self.fields.index("dq"))
                         self.dataChanged.emit(idx, idx)
                         
                 except (ValueError, TypeError):
-                    # Handle cases where input is not a valid number
                     pass
 
-            # Update the + button status
             plus_index = self.index(0, len(self.fields))
             self.dataChanged.emit(plus_index, plus_index)
             return True
 
-        # NORMAL ROW - Track changes
+        # NORMAL ROW
         obj = self.rows[row - 1]
         field = self.fields[col]
         original_value = getattr(obj, field)
         
-        # Convert the new value to the proper type for comparison
         column = getattr(self.repo.model, field)
         converted_value = self.repo._convert_value(value, column.type)
         
-        # Compare converted values (this handles dates, booleans, etc. properly)
         values_are_equal = self._values_are_equal(original_value, converted_value)
         
-        # Only track if value actually changed
         if not values_are_equal:
-            # Initialize tracking for this row
             if row not in self.edited_cells:
                 self.edited_cells[row] = {}
                 self.original_values[row] = {}
             
-            # Store original value if not already stored
             if field not in self.original_values[row]:
                 self.original_values[row][field] = original_value
             
-            # Store edited value (keep as string for now, will convert on commit)
             self.edited_cells[row][field] = value
-            
-            # Emit signal that we have pending changes
             self.has_pending_changes.emit(True)
         else:
-            # Value changed back to original, remove from tracking
             if row in self.edited_cells and field in self.edited_cells[row]:
                 del self.edited_cells[row][field]
                 del self.original_values[row][field]
                 
-                # Clean up empty dicts
                 if not self.edited_cells[row]:
                     del self.edited_cells[row]
                     del self.original_values[row]
                 
-                # Check if we still have pending changes
                 self.has_pending_changes.emit(bool(self.edited_cells))
         
         self.dataChanged.emit(index, index)
-        # Update the action column
         action_index = self.index(row, len(self.fields))
         self.dataChanged.emit(action_index, action_index)
         
         return True
 
     def _values_are_equal(self, original, converted):
-        """Compare two values for equality, handling None and different types"""
-        # Both None
         if original is None and converted is None:
             return True
-        
-        # One is None, other isn't
         if original is None or converted is None:
             return False
-        
-        # Both are dates - compare directly
         if hasattr(original, 'strftime') and hasattr(converted, 'strftime'):
             return original == converted
-        
-        # Both are booleans
         if isinstance(original, bool) and isinstance(converted, bool):
             return original == converted
-        
-        # Both are numbers
         if isinstance(original, (int, float)) and isinstance(converted, (int, float)):
             return original == converted
-        
-        # Convert to string and compare
         return str(original) == str(converted)
 
     # ---------- FLAGS ----------
@@ -323,46 +298,27 @@ class EditableTableModel(QAbstractTableModel):
         row = index.row()
         col = index.column()
 
-        # CREATION ROW
         if row == 0:
-            # ➕ column (last column)
             if col == len(self.fields):
-                return (
-                    Qt.ItemFlag.ItemIsSelectable
-                    | Qt.ItemFlag.ItemIsEnabled
-                )
+                return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            if col < len(self.fields) and self.fields[col] in self.computed_fields:
+                return Qt.ItemFlag.ItemIsEnabled
+            return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
 
-            # editable fields
-            return (
-                Qt.ItemFlag.ItemIsSelectable
-                | Qt.ItemFlag.ItemIsEnabled
-                | Qt.ItemFlag.ItemIsEditable
-            )
-
-        # NORMAL ROWS
-        # 🗑️/✓ column (last column)
         if col == len(self.fields):
-            return (
-                Qt.ItemFlag.ItemIsSelectable
-                | Qt.ItemFlag.ItemIsEnabled
-            )
-        
+            return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+
         if col < len(self.fields):
-            return (
-                Qt.ItemFlag.ItemIsSelectable
-                | Qt.ItemFlag.ItemIsEnabled
-                | Qt.ItemFlag.ItemIsEditable
-            )
+            if self.fields[col] in self.computed_fields:
+                return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+            return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
 
         return Qt.ItemFlag.NoItemFlags
 
     # ---------- HEADER ----------
 
     def headerData(self, section, orientation, role):
-        if (
-            role == Qt.ItemDataRole.DisplayRole
-            and orientation == Qt.Orientation.Horizontal
-        ):
+        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
             if section < len(self.headers):
                 return self.headers[section]
             return ""
@@ -372,11 +328,13 @@ class EditableTableModel(QAbstractTableModel):
 
     def _can_create(self):
         for v in self.fields:
-            if v != "in_prestito_a" and v != "inizio_prestito" and v != "fine_prestito":  # These fields can be empty
+            if v in self.computed_fields:
+                continue
+            if v != "in_prestito_a" and v != "inizio_prestito" and v != "fine_prestito":
                 if str(self.new_row[v]).strip() != "":
                     continue
                 else:
-                    return False           
+                    return False
         return True
     
     def create_from_row(self):
@@ -398,14 +356,22 @@ class EditableTableModel(QAbstractTableModel):
     
     def has_changes(self):
         return bool(self.edited_cells)
+
+    def _fields_being_committed(self, cells_dict):
+        """Return the set of field names present in a dict of row changes."""
+        fields = set()
+        for changes in cells_dict.values():
+            fields.update(changes.keys())
+        return fields
     
     def commit_all_changes(self):
         """Commit all pending changes to database"""
         try:
+            touched_fields = self._fields_being_committed(self.edited_cells)
+
             for row, changes in self.edited_cells.items():
                 obj = self.rows[row - 1]
                 for field, value in changes.items():
-                    # Convert value to proper type before setting
                     column = getattr(self.repo.model, field)
                     converted_value = self.repo._convert_value(value, column.type)
                     setattr(obj, field, converted_value)
@@ -416,28 +382,23 @@ class EditableTableModel(QAbstractTableModel):
             self.edited_cells = {}
             self.original_values = {}
 
-            # ✅ FIX: use refresh() instead of bare begin/endResetModel so rows reload
             self.refresh()
-            
-            # Refresh to update display
             self.beginResetModel()
             self.endResetModel()
             self.has_pending_changes.emit(False)
+
+            # Notify listeners (e.g. main_window) that rows were committed,
+            # passing which fields changed so they can decide what to refresh.
+            self.rows_committed.emit()
         except Exception as e:
-            # Rollback on error
             self.repo.session.rollback()
             print(f"Error committing changes: {e}")
-            # Re-raise to show user
             raise
     
     def cancel_all_changes(self):
-        """Cancel all pending changes"""
         self.edited_cells = {}
         self.original_values = {}
-
         self.refresh()
-        
-        # Refresh to update display
         self.beginResetModel()
         self.endResetModel()
         self.has_pending_changes.emit(False)
@@ -448,7 +409,6 @@ class EditableTableModel(QAbstractTableModel):
             try:
                 obj = self.rows[row - 1]
                 for field, value in self.edited_cells[row].items():
-                    # Convert value to proper type before setting
                     column = getattr(self.repo.model, field)
                     converted_value = self.repo._convert_value(value, column.type)
                     setattr(obj, field, converted_value)
@@ -458,30 +418,26 @@ class EditableTableModel(QAbstractTableModel):
                 del self.edited_cells[row]
                 del self.original_values[row]
                 
-                # Update the entire row
                 for col in range(self.columnCount()):
                     index = self.index(row, col)
                     self.dataChanged.emit(index, index)
                 
-                # Check if we still have pending changes
                 self.has_pending_changes.emit(bool(self.edited_cells))
+
+                # Notify listeners
+                self.rows_committed.emit()
             except Exception as e:
-                # Rollback on error
                 self.repo.session.rollback()
                 print(f"Error committing row changes: {e}")
-                # Re-raise to show user
                 raise
     
     def cancel_row_changes(self, row):
-        """Cancel changes for a specific row"""
         if row in self.edited_cells:
             del self.edited_cells[row]
             del self.original_values[row]
             
-            # Update the entire row
             for col in range(self.columnCount()):
                 index = self.index(row, col)
                 self.dataChanged.emit(index, index)
             
-            # Check if we still have pending changes
             self.has_pending_changes.emit(bool(self.edited_cells))
