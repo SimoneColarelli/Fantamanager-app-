@@ -28,7 +28,7 @@ class Fantasquadra(Base):
 
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False)
-    fm = Column(String)
+    fm = Column(Integer, nullable=False)
     campionati = Column(Integer, default=0)
     coppe = Column(Integer, default=0)
     supercoppe = Column(Integer, default=0)
