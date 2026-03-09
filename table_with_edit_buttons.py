@@ -88,7 +88,7 @@ class TableWithEditButtons(QWidget):
         if self.view and self.refresh_btn:
             # Position 10px from bottom and 10px from right edge
             x = self.view.width() - self.refresh_btn.width() - 10
-            y = self.view.height() - self.refresh_btn.height() - 10
+            y = self.view.height() - self.refresh_btn.height() - 40
             self.refresh_btn.move(x, y)
             self.refresh_btn.raise_()  # Bring to front
     

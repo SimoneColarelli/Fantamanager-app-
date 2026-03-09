@@ -168,7 +168,10 @@ class MainWindow(QMainWindow):
         # Wrap view with edit buttons
         f_table_widget = TableWithEditButtons(self.f_view)
 
-        self.f_deleted_widget = DeletedItemsWidget(f_repo, FANTASQUADRE_FIELDS, FANTASQUADRE_HEADERS)
+        f_computed = {"in_rosa", "convocati"}
+        f_real_fields = [f for f in FANTASQUADRE_FIELDS if f not in f_computed]
+        f_real_headers = [h for f, h in zip(FANTASQUADRE_FIELDS, FANTASQUADRE_HEADERS) if f not in f_computed]
+        self.f_deleted_widget = DeletedItemsWidget(f_repo, f_real_fields, f_real_headers)
         
         # Connect delete signal to refresh deleted items
         self.f_view.item_deleted.connect(self.f_deleted_widget.refresh)
