@@ -14,24 +14,37 @@ class TableWithEditButtons(QWidget):
         self.view = view
         self.setup_ui()
         
-        # Connect model signal
+        # Connect model signals
         model = self.get_source_model()
         if model:
             model.has_pending_changes.connect(self.update_buttons_visibility)
+            model.editing_locked_changed.connect(self._on_lock_changed)
 
     def get_source_model(self) -> EditableTableModel:
-            """Helper to extract the base model safely even if wrapped in a ProxyModel"""
-            model = self.view.model()
-            if isinstance(model, QSortFilterProxyModel):
-                return cast(EditableTableModel, model.sourceModel())
-            return cast(EditableTableModel, model)  
+        """Helper to extract the base model safely even if wrapped in a ProxyModel"""
+        model = self.view.model()
+        if isinstance(model, QSortFilterProxyModel):
+            return cast(EditableTableModel, model.sourceModel())
+        return cast(EditableTableModel, model)  
       
     def setup_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # Buttons layout (top right)
+        # Top bar: lock toggle on the left, save/cancel on the right
         buttons_layout = QHBoxLayout()
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+
+        # ── Lock / Unlock button ──────────────────────────────────────────
+        self.lock_btn = QPushButton("🔒 Sblocca modifiche")
+        self.lock_btn.setCheckable(True)
+        self.lock_btn.setChecked(True)  # Default to locked
+        self.lock_btn.setStyleSheet(self._lock_btn_style(locked=True))
+        self.lock_btn.setToolTip("Sblocca / blocca la modifica delle righe esistenti")
+        self.lock_btn.clicked.connect(self._toggle_lock)
+        buttons_layout.addWidget(self.lock_btn)
+        # ─────────────────────────────────────────────────────────────────
+
         buttons_layout.addStretch()
         
         self.confirm_btn = QPushButton("Conferma modifiche")
@@ -77,7 +90,50 @@ class TableWithEditButtons(QWidget):
         QTimer.singleShot(0, self.position_refresh_button)
         
         self.setLayout(layout)
-    
+
+    # ── Lock helpers ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _lock_btn_style(locked: bool) -> str:
+        if not locked:
+            return (
+                "QPushButton {"
+                "  background-color: #dc3545;"
+                "  color: white;"
+                "  padding: 5px 15px;"
+                "  border-radius: 3px;"
+                "}"
+                "QPushButton:hover { background-color: #c82333; }"
+            )
+        else:
+            return (
+                "QPushButton {"
+                "  background-color: #6c757d;"
+                "  color: white;"
+                "  padding: 5px 15px;"
+                "  border-radius: 3px;"
+                "}"
+                "QPushButton:hover { background-color: #5a6268; }"
+            )
+
+    def _toggle_lock(self):
+        model = self.get_source_model()
+        if not model:
+            return
+        new_locked = self.lock_btn.isChecked()
+        model.set_editing_locked(new_locked)
+
+    def _on_lock_changed(self, locked: bool):
+        """Update button appearance to reflect the current lock state."""
+        self.lock_btn.setChecked(locked)
+        if locked:
+            self.lock_btn.setText("🔓 Sblocca modifiche")
+        else:
+            self.lock_btn.setText("🔒 Blocca modifiche")
+        self.lock_btn.setStyleSheet(self._lock_btn_style(locked))
+
+    # ── Resize / positioning ──────────────────────────────────────────────
+
     def resizeEvent(self, event):
         """Reposition refresh button when widget is resized"""
         super().resizeEvent(event)
@@ -86,30 +142,30 @@ class TableWithEditButtons(QWidget):
     def position_refresh_button(self):
         """Position the refresh button at bottom right corner of the table"""
         if self.view and self.refresh_btn:
-            # Position 10px from bottom and 10px from right edge
             x = self.view.width() - self.refresh_btn.width() - 10
             y = self.view.height() - self.refresh_btn.height() - 40
             self.refresh_btn.move(x, y)
-            self.refresh_btn.raise_()  # Bring to front
-    
+            self.refresh_btn.raise_()
+
+    # ── Visibility / save / cancel ────────────────────────────────────────
+
     def update_buttons_visibility(self, has_changes):
         self.confirm_btn.setVisible(has_changes)
         self.cancel_btn.setVisible(has_changes)
     
-    
     def confirm_changes(self):
-            model = self.get_source_model()
-            if model:
-                try:
-                    model.commit_all_changes()
-                except Exception as e:
-                    from PySide6.QtWidgets import QMessageBox
-                    QMessageBox.critical(
-                        self, 
-                        "Errore", 
-                        f"Errore durante il salvataggio delle modifiche:\n{str(e)}"
-                    )
-                    model.refresh()
+        model = self.get_source_model()
+        if model:
+            try:
+                model.commit_all_changes()
+            except Exception as e:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.critical(
+                    self, 
+                    "Errore", 
+                    f"Errore durante il salvataggio delle modifiche:\n{str(e)}"
+                )
+                model.refresh()
         
     def cancel_changes(self):
         model = self.get_source_model()
@@ -133,12 +189,12 @@ class TableWithEditButtons(QWidget):
             
             model.refresh()
 
-            # ✅ FIX: invalidate the proxy so it re-filters and re-sorts with fresh data
+            # Invalidate proxy so it re-filters and re-sorts with fresh data
             proxy = self.view.model()
             if isinstance(proxy, QSortFilterProxyModel):
                 proxy.invalidate()
             
-            # Visual feedback: briefly change button color
+            # Visual feedback: briefly change button colour
             original_style = self.refresh_btn.styleSheet()
             self.refresh_btn.setStyleSheet("""
                 QPushButton {

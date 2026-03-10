@@ -4,8 +4,8 @@ from PySide6.QtWidgets import QMainWindow, QTabWidget, QSplitter, QVBoxLayout, Q
 from search_proxy_model import SearchProxyModel
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from database import SessionLocal, engine
-from models import Giocatore, Fantasquadra
+from database import SessionLocal, engine, Base
+from models import Giocatore, Fantasquadra, Operazione
 from repository import Repository
 from editable_table_model import EditableTableModel
 from constants import *
@@ -13,6 +13,8 @@ from editable_table_view import EditableTableView
 from deleted_items_widget import DeletedItemsWidget
 from table_with_edit_buttons import TableWithEditButtons
 from data_manager import DataManagerUI
+from operazione_repository import OperazioneRepository
+from mercato_widget import MercatoWidget
 
 
 def _count_in_rosa(fantasquadra):
@@ -42,37 +44,32 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Fantamanager – Phase 3")
-        self.resize(1000, 600)
+        self.resize(1200, 700)
 
-        Giocatore.metadata.create_all(engine)
-        Fantasquadra.metadata.create_all(engine)
+        # Create all tables (including the new ones for Operazione)
+        Base.metadata.create_all(engine)
 
         # === VARIABILE DI STATO DELLE QUOTAZIONI ===
-        # Dizionario che avrà come chiave il Nome (4a colonna) e come valore la Quotazione (9a colonna)
-        self.quotazioni_data = {} 
+        self.quotazioni_data = {}
         
         # === BARRA GRAFICA QUOTAZIONI ===
         self.quotazioni_bar = QWidget()
         quotazioni_layout = QHBoxLayout(self.quotazioni_bar)
-        quotazioni_layout.setContentsMargins(10, 5, 10, 5) # Piccoli margini
+        quotazioni_layout.setContentsMargins(10, 5, 10, 5)
         
-        # Bottone Upload
         self.btn_upload_quotazioni = QPushButton("📂 Carica file Quotazioni (.xlsx)")
         self.btn_upload_quotazioni.clicked.connect(self._upload_quotazioni)
         
-        # Etichetta di Stato
         self.lbl_quotazioni_status = QLabel("Stato: 🔴 Non Caricate")
         self.lbl_quotazioni_status.setStyleSheet("color: red; font-weight: bold;")
         
-        # Bottone Pulisci Dati
         self.btn_clear_quotazioni = QPushButton("🗑️ Svuota Quotazioni")
         self.btn_clear_quotazioni.clicked.connect(self._clear_quotazioni)
-        self.btn_clear_quotazioni.setEnabled(False) # Disabilitato all'inizio
+        self.btn_clear_quotazioni.setEnabled(False)
         
-        # Aggiungo i widget al layout orizzontale
         quotazioni_layout.addWidget(self.btn_upload_quotazioni)
         quotazioni_layout.addWidget(self.lbl_quotazioni_status)
-        quotazioni_layout.addStretch() # Spinge il bottone 'Svuota' verso destra
+        quotazioni_layout.addStretch()
         quotazioni_layout.addWidget(self.btn_clear_quotazioni)
 
         self.tabs = QTabWidget()
@@ -81,7 +78,6 @@ class MainWindow(QMainWindow):
         g_repo = Repository(SessionLocal, Giocatore, GIOCATORI_FIELDS)
         self.g_model = EditableTableModel(g_repo, GIOCATORI_FIELDS, GIOCATORI_HEADERS)
 
-        # 1. Setup Proxy Model for Live Searching
         self.g_proxy_model = SearchProxyModel()
         self.g_proxy_model.setSourceModel(self.g_model)
         try:
@@ -93,14 +89,10 @@ class MainWindow(QMainWindow):
 
         self.g_view = EditableTableView()
         self.g_view.setModel(self.g_proxy_model)
-        
-        # ABILITA L'ORDINAMENTO SULLE COLONNE!
         self.g_view.setSortingEnabled(True)
 
-        # Wrap view with edit buttons
         g_table_widget = TableWithEditButtons(self.g_view)
 
-        # 2. Create the Search Bar UI
         filter_layout = QHBoxLayout()
         filter_layout.setContentsMargins(0, 0, 0, 0)
         
@@ -125,20 +117,18 @@ class MainWindow(QMainWindow):
                 color: black;
             }
         """)
-        self.update_squadra_combo()  # Popola la combo box
+        self.update_squadra_combo()
         
         filter_layout.addWidget(self.g_search_bar)
         filter_layout.addWidget(self.g_squadra_combo)
         
-        # Connect signals
         self.g_search_bar.textChanged.connect(self.g_proxy_model.set_search_text)
         self.g_squadra_combo.currentTextChanged.connect(self.g_proxy_model.set_squadra_filter)
 
-        # 3. Combine Search Bar and Table together in a layout
         g_main_widget = QWidget()
         g_main_layout = QVBoxLayout(g_main_widget)
         g_main_layout.setContentsMargins(0, 0, 0, 0)
-        g_main_layout.addWidget(self.quotazioni_bar)  # Aggiungi la barra delle quotazioni sopra
+        g_main_layout.addWidget(self.quotazioni_bar)
         g_main_layout.addLayout(filter_layout)
         g_main_layout.addWidget(g_table_widget)
 
@@ -148,11 +138,10 @@ class MainWindow(QMainWindow):
         self.g_view.item_deleted.connect(self.g_model.refresh)
         self.g_deleted_widget.items_restored.connect(self.g_model.refresh)
 
-        # Create splitter for main table and deleted items
         g_splitter = QSplitter(Qt.Orientation.Vertical)
-        g_splitter.addWidget(g_main_widget) 
+        g_splitter.addWidget(g_main_widget)
         g_splitter.addWidget(self.g_deleted_widget)
-        g_splitter.setStretchFactor(0, 3) 
+        g_splitter.setStretchFactor(0, 3)
         g_splitter.setStretchFactor(1, 1)
 
         # ========== FANTASQUADRE TAB ==========
@@ -165,7 +154,6 @@ class MainWindow(QMainWindow):
         self.f_view = EditableTableView()
         self.f_view.setModel(self.f_model)
 
-        # Wrap view with edit buttons
         f_table_widget = TableWithEditButtons(self.f_view)
 
         f_computed = {"in_rosa", "convocati"}
@@ -173,45 +161,45 @@ class MainWindow(QMainWindow):
         f_real_headers = [h for f, h in zip(FANTASQUADRE_FIELDS, FANTASQUADRE_HEADERS) if f not in f_computed]
         self.f_deleted_widget = DeletedItemsWidget(f_repo, f_real_fields, f_real_headers)
         
-        # Connect delete signal to refresh deleted items
         self.f_view.item_deleted.connect(self.f_deleted_widget.refresh)
         self.f_view.item_deleted.connect(self.f_model.refresh)
-        
-        # Connect restore signal to refresh main table
         self.f_deleted_widget.items_restored.connect(self.f_model.refresh)
-
-        # When Giocatori are committed, refresh Fantasquadre so in_rosa/convocati update
         self.g_model.rows_committed.connect(self.f_model.refresh)
 
-        # Create splitter for main table and deleted items
         f_splitter = QSplitter(Qt.Orientation.Vertical)
         f_splitter.addWidget(f_table_widget)
         f_splitter.addWidget(self.f_deleted_widget)
         f_splitter.setStretchFactor(0, 3)
         f_splitter.setStretchFactor(1, 1)
 
+        # ========== MERCATO TAB ==========
+        self.op_repo = OperazioneRepository(SessionLocal)
+        self.mercato_widget = MercatoWidget(self.op_repo)
+
+        # When giocatori or fantasquadre change, keep mercato combos in sync
+        self.g_model.rows_committed.connect(self.mercato_widget.refresh_combos)
+        self.f_model.rows_committed.connect(self.mercato_widget.refresh_combos)
+        self.g_deleted_widget.items_restored.connect(self.mercato_widget.refresh_combos)
+        self.f_deleted_widget.items_restored.connect(self.mercato_widget.refresh_combos)
+
         # ========== ADD TABS ==========
         self.tabs.addTab(g_splitter, "Giocatori")
         self.tabs.addTab(f_splitter, "Fantasquadre")
+        self.tabs.addTab(self.mercato_widget, "⚽ Mercato")
 
         self.setCentralWidget(self.tabs)
 
-        # Initialize data manager with global refresh callback
         self.data_manager_ui = DataManagerUI(self, refresh_callback=self.refresh_all_data)
         self.setup_menu()
 
     def refresh_all_data(self):
-        """Refresh all tables and deleted items widgets"""
-        # Refresh Giocatori
         self.g_model.refresh()
         self.g_deleted_widget.refresh()
-        
-        # Refresh Fantasquadre
         self.f_model.refresh()
         self.f_deleted_widget.refresh()
-        
-        # Refresh Squadra filter combo
         self.update_squadra_combo()
+        self.mercato_widget.refresh_combos()
+        self.mercato_widget._refresh_history()
 
     def setup_menu(self):
         menubar = self.menuBar()
@@ -254,7 +242,6 @@ class MainWindow(QMainWindow):
         update_menu.addAction(serie_a_update_action)
 
     def update_squadra_combo(self):
-        """Popola o aggiorna il menu a tendina delle squadre"""
         session = SessionLocal()
         squadre = session.query(Fantasquadra.nome).filter_by(deleted=False).all()
         session.close()
@@ -276,11 +263,15 @@ class MainWindow(QMainWindow):
         self.g_squadra_combo.blockSignals(False)
 
     def mousePressEvent(self, event):
-        """Deselect the active table when the user clicks outside of it."""
         super().mousePressEvent(event)
 
         current_tab = self.tabs.currentIndex()
-        active_view = self.g_view if current_tab == 0 else self.f_view
+        if current_tab == 0:
+            active_view = self.g_view
+        elif current_tab == 1:
+            active_view = self.f_view
+        else:
+            return  # Mercato tab: no deselect logic needed
 
         pos_in_viewport = active_view.viewport().mapFromGlobal(event.globalPosition().toPoint())
         clicked_on_table = active_view.viewport().rect().contains(pos_in_viewport)
@@ -289,12 +280,8 @@ class MainWindow(QMainWindow):
             active_view.deselect()
 
     def _upload_quotazioni(self):
-        """Apre un file dialog, legge l'Excel e popola la variabile di stato"""
         filepath, _ = QFileDialog.getOpenFileName(
-            self, 
-            "Seleziona file Quotazioni", 
-            "", 
-            "File Excel (*.xlsx)"
+            self, "Seleziona file Quotazioni", "", "File Excel (*.xlsx)"
         )
         
         if not filepath:
@@ -310,17 +297,14 @@ class MainWindow(QMainWindow):
                 if len(row) >= 9:
                     nome = row[3]
                     quotazione = row[8]
-                    
                     if nome and isinstance(nome, str):
                         self.quotazioni_data[nome.strip()] = quotazione
 
-            print(self.quotazioni_data)
             if self.quotazioni_data:
                 conteggio = len(self.quotazioni_data)
                 self.lbl_quotazioni_status.setText(f"Stato: 🟢 Caricate ({conteggio} giocatori)")
                 self.lbl_quotazioni_status.setStyleSheet("color: green; font-weight: bold;")
                 self.btn_clear_quotazioni.setEnabled(True)
-                
                 QMessageBox.information(self, "Successo", f"Dati caricati! Letti {conteggio} giocatori.")
             else:
                 QMessageBox.warning(self, "Attenzione", "File elaborato, ma non è stato trovato alcun giocatore.")
@@ -329,10 +313,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Errore", f"Impossibile leggere il file:\n{str(e)}")
 
     def _clear_quotazioni(self):
-        """Svuota la variabile di stato previa conferma e ripristina l'interfaccia"""
         risposta = QMessageBox.question(
-            self,
-            "Conferma Svuotamento",
+            self, "Conferma Svuotamento",
             "Sei sicuro di voler svuotare le quotazioni attualmente in memoria?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
@@ -340,15 +322,12 @@ class MainWindow(QMainWindow):
         
         if risposta == QMessageBox.StandardButton.Yes:
             self.quotazioni_data.clear()
-            
             self.lbl_quotazioni_status.setText("Stato: 🔴 Non Caricate")
             self.lbl_quotazioni_status.setStyleSheet("color: red; font-weight: bold;")
             self.btn_clear_quotazioni.setEnabled(False)
-            
             QMessageBox.information(self, "Dati Cancellati", "Le quotazioni sono state rimosse correttamente.")
 
     def _calculate_update_value(self, dq, spesa):
-
         new_current_value = spesa if spesa is not None else 0
         dq = dq if dq is not None else 0
         delta_abs = abs(dq)
@@ -361,47 +340,36 @@ class MainWindow(QMainWindow):
             if 1 <= new_current_value <= 49:
                 if delta_sign == -1:
                     new_current_value = new_current_value - 3 * delta_abs
-                    print(new_current_value)
                     break
                 else:
                     new_current_value += 21.5
-            
             elif 50 <= new_current_value <= 99:
                 if delta_sign == -1:
                     new_current_value = new_current_value - 8 * delta_abs
-                    print(new_current_value)
                     break
                 else:
                     new_current_value += 18
-            
             elif 100 <= new_current_value <= 199:
                 if delta_sign == -1:
                     new_current_value = new_current_value - 12 * delta_abs
-                    print(new_current_value)
                     break
                 else:
                     new_current_value += 12
-            
             elif 200 <= new_current_value <= 399:
                 if delta_sign == -1:
                     new_current_value = new_current_value - 18 * delta_abs
-                    print(new_current_value)
                     break
                 else:
                     new_current_value += 8
-            
             elif 400 <= new_current_value <= 599:
                 if delta_sign == -1:
                     new_current_value = new_current_value - 21.5 * delta_abs
-                    print(new_current_value)
                     break
                 else:
                     new_current_value += 3
-            
             elif 600 <= new_current_value <= 99999:
                 if delta_sign == -1:
                     new_current_value = new_current_value - 30 * delta_abs
-                    print(new_current_value)
                     break
                 else:
                     new_current_value += 1
@@ -409,7 +377,6 @@ class MainWindow(QMainWindow):
         return new_current_value if new_current_value > 0 else 1
 
     def _check_prerequisites(self):
-        """Metodo di supporto per bloccare se i dati non sono caricati"""
         if not hasattr(self, 'quotazioni_data') or not self.quotazioni_data:
             QMessageBox.warning(self, "Attenzione", "Devi prima caricare il file delle Quotazioni!")
             return False
@@ -419,7 +386,7 @@ class MainWindow(QMainWindow):
         if not self._check_prerequisites(): return
         
         reply = QMessageBox.question(
-            self, "Conferma Complete Update", 
+            self, "Conferma Complete Update",
             "Questa operazione aggiornerà presenze in Serie A, Quotazioni e Valori di Svincolo calcolando il DQ.\nSei sicuro di voler continuare?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
         )
@@ -436,17 +403,14 @@ class MainWindow(QMainWindow):
                 continue
             
             g.in_serie_a = True
-            
             nuova_quotazione = self.quotazioni_data[g.nome]
             vecchia_quotazione = g.quotazione if g.quotazione is not None else 0
             partial_dq = nuova_quotazione - vecchia_quotazione
-            
             g.quotazione = nuova_quotazione
             
             if not g.in_prestito_a:
                 valore_dq_attuale = g.dq if g.dq is not None else 0
                 g.dq = valore_dq_attuale + partial_dq
-                
                 spesa = g.spesa if g.spesa is not None else 1
                 g.valore_svincolo = self._calculate_update_value(g.dq, spesa)
             
@@ -458,7 +422,7 @@ class MainWindow(QMainWindow):
         if not self._check_prerequisites(): return
         
         reply = QMessageBox.question(
-            self, "Conferma Quotazioni Update", 
+            self, "Conferma Quotazioni Update",
             "Questa operazione aggiornerà SOLO le Quotazioni, senza ricalcolare Svincoli o DQ.\nSei sicuro di voler continuare?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
         )
@@ -473,10 +437,8 @@ class MainWindow(QMainWindow):
                 g.in_serie_a = False
                 g.convocato = False
                 continue
-            
             g.in_serie_a = True
-            nuova_quotazione = self.quotazioni_data[g.nome]
-            g.quotazione = nuova_quotazione
+            g.quotazione = self.quotazioni_data[g.nome]
             
         session.commit()
         base_model.refresh() #type: ignore
@@ -486,7 +448,7 @@ class MainWindow(QMainWindow):
         if not self._check_prerequisites(): return
         
         reply = QMessageBox.question(
-            self, "Conferma Serie A Update", 
+            self, "Conferma Serie A Update",
             "Questa operazione aggiornerà SOLO lo stato 'In Serie A' e 'Convocato' dei giocatori.\nSei sicuro di voler continuare?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
         )
@@ -508,7 +470,6 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Successo", "Serie A Update completato con successo!")
 
     def get_giocatori_base_model(self):
-        """Metodo di utilità: restituisce il modello non proxy della tabella giocatori"""
         model = self.g_view.model()
         from PySide6.QtCore import QSortFilterProxyModel
         if isinstance(model, QSortFilterProxyModel):

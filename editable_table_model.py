@@ -16,6 +16,7 @@ class EditableTableModel(QAbstractTableModel):
     
     has_pending_changes = Signal(bool)  # Signal when pending changes state changes
     rows_committed = Signal()           # Signal emitted after any successful commit
+    editing_locked_changed = Signal(bool)  # Signal when lock state changes
 
     def __init__(self, repository, fields, headers, computed_fields=None):
         super().__init__()
@@ -30,6 +31,7 @@ class EditableTableModel(QAbstractTableModel):
         self.edited_cells = {}  # {row: {field: value}}
         self.original_values = {}  # {row: {field: original_value}}
         self.current_row = -1
+        self.editing_locked = True  # When True, only row 0 (creation row) remains editable
         self.refresh()
 
     # ---------- BASIC ----------
@@ -43,6 +45,19 @@ class EditableTableModel(QAbstractTableModel):
         self.endResetModel()
         self.has_pending_changes.emit(False)
     
+    def set_editing_locked(self, locked: bool):
+        """Lock or unlock editing for all rows except the creation row (row 0)."""
+        if self.editing_locked == locked:
+            return
+        self.editing_locked = locked
+        # Refresh all flags by notifying the view that all data changed
+        self.dataChanged.emit(
+            self.index(1, 0),
+            self.index(self.rowCount() - 1, self.columnCount() - 1),
+            [Qt.ItemDataRole.BackgroundRole]
+        )
+        self.editing_locked_changed.emit(locked)
+
     def set_current_row(self, row):
         if getattr(self, 'current_row', -1) == row:
             return
@@ -131,10 +146,14 @@ class EditableTableModel(QAbstractTableModel):
             has_edits = row in self.edited_cells and len(self.edited_cells[row]) > 0
 
             if role == Qt.ItemDataRole.BackgroundRole:
+                if self.editing_locked:
+                    return QColor(245, 245, 245)
                 if getattr(self, 'current_row', -1) == row:
                     return QColor(240, 240, 240)
 
             if role == Qt.ItemDataRole.DisplayRole:
+                if self.editing_locked:
+                    return ""
                 return "🗑️ ✓ ❌" if has_edits else "🗑️"
             if role == Qt.ItemDataRole.ForegroundRole:
                 return QColor(255, 0, 0)
@@ -150,6 +169,8 @@ class EditableTableModel(QAbstractTableModel):
             # ── COMPUTED FIELD ──────────────────────────────
             if field in self.computed_fields:
                 if role == Qt.ItemDataRole.BackgroundRole:
+                    if self.editing_locked:
+                        return QColor(245, 245, 245)
                     if getattr(self, 'current_row', -1) == row:
                         return QColor(240, 240, 240)
                     return None
@@ -171,6 +192,8 @@ class EditableTableModel(QAbstractTableModel):
                 value = getattr(obj, field)
             
             if role == Qt.ItemDataRole.BackgroundRole:
+                if self.editing_locked:
+                    return QColor(245, 245, 245)
                 if row in self.edited_cells and field in self.edited_cells[row]:
                     return QColor(200, 255, 200)
                 if getattr(self, 'current_row', -1) == row:
@@ -208,7 +231,7 @@ class EditableTableModel(QAbstractTableModel):
         if col < len(self.fields) and self.fields[col] in self.computed_fields:
             return False
 
-        # CREATION ROW
+        # CREATION ROW — always allowed regardless of lock
         if row == 0 and col < len(self.fields):
             field_name = self.fields[col]
             
@@ -242,7 +265,10 @@ class EditableTableModel(QAbstractTableModel):
             self.dataChanged.emit(plus_index, plus_index)
             return True
 
-        # NORMAL ROW
+        # NORMAL ROW — blocked when locked
+        if self.editing_locked:
+            return False
+
         obj = self.rows[row - 1]
         field = self.fields[col]
         original_value = getattr(obj, field)
@@ -298,12 +324,17 @@ class EditableTableModel(QAbstractTableModel):
         row = index.row()
         col = index.column()
 
+        # Creation row (row 0) — always fully editable regardless of lock
         if row == 0:
             if col == len(self.fields):
                 return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
             if col < len(self.fields) and self.fields[col] in self.computed_fields:
                 return Qt.ItemFlag.ItemIsEnabled
             return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
+
+        # Normal rows — read-only when locked
+        if self.editing_locked:
+            return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
 
         if col == len(self.fields):
             return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
