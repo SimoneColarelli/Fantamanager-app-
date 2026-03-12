@@ -182,6 +182,16 @@ class MainWindow(QMainWindow):
         self.g_deleted_widget.items_restored.connect(self.mercato_widget.refresh_combos)
         self.f_deleted_widget.items_restored.connect(self.mercato_widget.refresh_combos)
 
+        # When a cessione is committed, refresh giocatori + fantasquadre tables
+        self.mercato_widget.cessione_committed.connect(self.g_model.refresh)
+        self.mercato_widget.cessione_committed.connect(self.f_model.refresh)
+        self.mercato_widget.cessione_committed.connect(self.update_squadra_combo)
+        self.mercato_widget.cessione_committed.connect(self.mercato_widget.refresh_combos)
+
+        # Give mercato_widget access to the persistent repo sessions so it can
+        # expire them (release SQLite read locks) before each write operation.
+        self.mercato_widget.sibling_sessions = [g_repo.session, f_repo.session]
+
         # ========== ADD TABS ==========
         self.tabs.addTab(g_splitter, "Giocatori")
         self.tabs.addTab(f_splitter, "Fantasquadre")

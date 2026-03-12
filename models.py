@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Date, Float, ForeignKey, Table
+from sqlalchemy import Column, Integer, String, Boolean, Date, Float, ForeignKey, Table, Text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -78,6 +78,9 @@ class Operazione(Base):
 
     data = Column(Date, nullable=True)
     clausole = Column(String, nullable=True)
+    # JSON snapshot: [{"nome": str, "valore_svincolo": float, "fine_prestito": str|null}, ...]
+    # Populated at write time so the card can display players even after deletion (svincolo).
+    giocatori_snapshot = Column(Text, nullable=True)
 
     # Relationships
     fantasquadra_a = relationship("Fantasquadra", foreign_keys=[fantasquadra_a_id])
