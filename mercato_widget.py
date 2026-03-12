@@ -911,9 +911,11 @@ class OperazioneCard(QFrame):
             return QLabel(f"<span>{g}</span>")
 
         if is_prestito:
-            fine = g.fine_prestito
-            secondary = fine.strftime("%d/%m/%Y") if fine else "—"
-            secondary_str = f"fino al {secondary}"
+            secondary_str = ""
+            if is_arriving:
+                fine = g.fine_prestito
+                secondary = fine.strftime("%d/%m/%Y") if fine else "—"
+                secondary_str = f"fino al {secondary}"
             sec_color = "#7a4f00" if is_arriving else MUTED
         else:
             vs = g.valore_svincolo
