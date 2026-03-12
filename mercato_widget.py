@@ -16,7 +16,7 @@ BOTTOM HALF : storico operazioni
 from __future__ import annotations
 
 import datetime
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, cast
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout,
@@ -1500,8 +1500,8 @@ class MercatoWidget(QWidget):
 
         # ── Resolve names for confirmation dialog ────────────────────────
         fqs = {fq.id: fq.nome for fq in self.repo.active_fantasquadre()}
-        nome_a = fqs.get(fq_a_id_eff, str(fq_a_id_eff))
-        nome_b = fqs.get(fq_b_id_eff, str(fq_b_id_eff))
+        nome_a = cast(str, fqs.get(fq_a_id_eff, str(fq_a_id_eff)))
+        nome_b = cast(str, fqs.get(fq_b_id_eff, str(fq_b_id_eff)))
 
         # Need valore_svincolo from DB for amount computation preview
         all_vs: dict = {}
