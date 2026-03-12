@@ -1842,14 +1842,14 @@ class MercatoWidget(QWidget):
                 self.panel_a.club_combo.currentText()
             )
         }
-        total_vs = sum(
+        total_vs = cast(float, sum(
             (giocatori_db[pid].valore_svincolo or 0.0) for pid in ids if pid in giocatori_db
-        )
+        ))
 
         lines = []
         for pid in ids:
             name = name_map.get(pid, f"ID {pid}")
-            vs   = giocatori_db[pid].valore_svincolo if pid in giocatori_db else 0.0
+            vs   = cast(float, giocatori_db[pid].valore_svincolo if pid in giocatori_db else 0.0)
             lines.append(f"  • {name}  VS: {int(vs or 0)} FM")
 
         summary = (
@@ -1935,13 +1935,14 @@ class MercatoWidget(QWidget):
     def _refresh_history(self):
         while self.cards_vbox.count() > 1:
             item = self.cards_vbox.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            widget = item.widget() if item else None
+            if widget is not None:
+                widget.deleteLater()
 
         tipo_f = self.filter_combo.currentText()
         ops = self.repo.all()
         if tipo_f != "Tutte":
-            ops = [o for o in ops if o.tipo_operazione == tipo_f]
+            ops = [o for o in ops if cast(bool,o.tipo_operazione) == tipo_f]
 
         if not ops:
             el = _lbl("Nessuna operazione registrata.", color=MUTED)
