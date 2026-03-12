@@ -53,7 +53,7 @@ class Fantasquadra(Base):
 
 
 TIPI_OPERAZIONE = [
-    "cessione definitiva",
+    "acquisto definitivo",
     "scambio definitivo",
     "prestito",
     "scambio prestiti",

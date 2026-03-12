@@ -494,7 +494,7 @@ class OperazioneRepository:
     #  BUSINESS LOGIC — CESSIONE DEFINITIVA                                #
     # ------------------------------------------------------------------ #
 
-    def calcola_cessione(
+    def calcola_acquisto(
         self,
         giocatori_data: List[dict],   # [{"id": int, "quotazione": int}, ...]
         fq_venditrice_id: int,
@@ -505,7 +505,7 @@ class OperazioneRepository:
         sessions_to_expire: Optional[List] = None,   # pass other open sessions
     ) -> Operazione:
         """
-        Execute a 'cessione definitiva' atomically inside a single fresh session:
+        Execute a 'acquisto definitivo' atomically inside a single fresh session:
           1. Update every Giocatore.
           2. Update both Fantasquadra.fm values.
           3. Record the Operazione.
@@ -579,7 +579,7 @@ class OperazioneRepository:
             op = Operazione(
                 fantasquadra_a_id=fq_venditrice_id,
                 fantasquadra_b_id=fq_acquirente_id,
-                tipo_operazione="cessione definitiva",
+                tipo_operazione="acquisto definitivo",
                 conguaglio=fm,
                 conguaglio_da_id=fq_acquirente_id,
                 data=data_norm,

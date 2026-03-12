@@ -44,7 +44,7 @@ BORDER = "#d0d7e3"
 RED    = "#b52a2a"
 
 TIPO_META: Dict[str, tuple] = {
-    "cessione definitiva": ("#1a7a4a", "#d4edda"),
+    "acquisto definitivo": ("#1a7a4a", "#d4edda"),
     "scambio definitivo":  ("#0d4f8a", "#d0e8ff"),
     "prestito":            ("#7a4f00", "#fff3cd"),
     "scambio prestiti":    ("#5a007a", "#f0d6ff"),
@@ -602,7 +602,7 @@ class ClubPanel(QWidget):
 
     def update_fm_hint(self, vs_floor: Optional[int] = None):
         """Update the small hint label below the FM spin.
-        Shows available balance and, for cessione, the minimum required amount."""
+        Shows available balance and, for acquisto, the minimum required amount."""
         balance = self.fq_fm()
         if balance is None or not self.fm_spin.isEnabled():
             self.fm_hint_lbl.setVisible(False)
@@ -757,7 +757,7 @@ class OperazioneCard(QFrame):
         is_svincolo       = (tipo == "svincolo")
         is_prestito       = (tipo in ("prestito", "scambio prestiti"))
         is_scambio        = (tipo in ("scambio definitivo", "scambio prestiti"))
-        is_cessione       = (tipo == "cessione definitiva")
+        is_acquisto       = (tipo == "acquisto definitivo")
 
         if is_svincolo:
             # Players are deleted from DB after svincolo — read from snapshot
@@ -772,7 +772,7 @@ class OperazioneCard(QFrame):
             br.addWidget(col)
         else:
             # Assign players to the side they LEFT from:
-            # - cessione/prestito: all players left fq_a → arrive at fq_b
+            # - acquisto/prestito: all players left fq_a → arrive at fq_b
             # - scambio: players whose current squadra == fq_b.nome left fq_a,
             #            players whose current squadra == fq_a.nome left fq_b
             if is_scambio and fq_b_name:
@@ -783,7 +783,7 @@ class OperazioneCard(QFrame):
                            if (g.squadra == fq_a_name)
                            or (is_prestito and g.in_prestito_a == fq_a_name)]
             else:
-                # cessione / prestito: all players left fq_a
+                # acquisto / prestito: all players left fq_a
                 left_a = list(op.giocatori)
                 left_b = []
 
@@ -997,14 +997,14 @@ class OperazioneCard(QFrame):
 
 class MercatoWidget(QWidget):
 
-    # Emitted after a cessione is committed so MainWindow can refresh tables
-    cessione_committed = Signal()
+    # Emitted after an acquisto is committed so MainWindow can refresh tables
+    operazione_committed = Signal()
 
     def __init__(self, repo: OperazioneRepository, parent=None):
         super().__init__(parent)
         self.repo = repo
         # MainWindow populates this with persistent repo sessions so
-        # calcola_cessione can expire them before writing (releases SQLite read locks)
+        # calcola_acquisto can expire them before writing (releases SQLite read locks)
         self.sibling_sessions: list = []
         self._build_ui()
         self.refresh_combos()
@@ -1179,7 +1179,7 @@ class MercatoWidget(QWidget):
         Enforces three rules reactively via spin range:
           1. Mutex: only one panel may have FM > 0 at a time.
           2. Cap: the FM entered cannot exceed the paying panel's current FM balance.
-          3. Cessione floor: for cessione definitiva the FM must be ≥ sum of
+          3. Acquisto floor: for acquisto definitivo the FM must be ≥ sum of
              valore_svincolo of the players added by the buying panel.
         """
         a = self.panel_a.fm_spin.value()
@@ -1206,11 +1206,11 @@ class MercatoWidget(QWidget):
                 panel.fm_hint_lbl.setVisible(False)
                 continue
 
-            # For cessione definitiva the buyer (the FM payer) must also cover
+            # For acquisto definitivo the buyer (the FM payer) must also cover
             # the total valore_svincolo of the players they are buying.
-            # The buyer is the panel that has FM (no players in cessione).
-            if tipo == "cessione definitiva":
-                # In cessione: seller has players, buyer has FM.
+            # The buyer is the panel that has FM (no players in acquisto).
+            if tipo == "acquisto definitivo":
+                # In acquisto: seller has players, buyer has FM.
                 # The opposite panel's VS is the floor.
                 other = self.panel_b if panel is self.panel_a else self.panel_a
                 vs_floor = int(other.total_vs())
@@ -1254,8 +1254,8 @@ class MercatoWidget(QWidget):
             QMessageBox.warning(self, "Attenzione", "Seleziona almeno un giocatore."); return
 
         # ── Route by tipo ────────────────────────────────────────────────
-        if tipo == "cessione definitiva":
-            self._submit_cessione(
+        if tipo == "acquisto definitivo":
+            self._submit_acquisto(
                 fq_a_id, fq_b_id, ids_a, ids_b, fm_a, fm_b, data, clausole
             )
         elif tipo == "scambio definitivo":
@@ -1277,26 +1277,26 @@ class MercatoWidget(QWidget):
                 tipo, fq_a_id, fq_b_id, ids_a, ids_b, fm_a, fm_b, data, clausole
             )
 
-    # ── Cessione definitiva ───────────────────────────────────────────────
+    # ── Acquisto definitivo ───────────────────────────────────────────────
 
-    def _submit_cessione(self, fq_a_id, fq_b_id, ids_a, ids_b, fm_a, fm_b, data, clausole):
+    def _submit_acquisto(self, fq_a_id, fq_b_id, ids_a, ids_b, fm_a, fm_b, data, clausole):
         """
-        Validate cessione-specific rules, show confirmation summary,
-        then call repo.calcola_cessione().
+        Validate acquisto-specific rules, show confirmation summary,
+        then call repo.calcola_acquisto().
 
         Rules:
           • Players must be on exactly ONE side (the seller's side).
           • FM must be on the OTHER side (the buyer's side).
           • FM must be > 0.
         """
-        # ── Cessione-specific validation ─────────────────────────────────
+        # ── Acquisto-specific validation ─────────────────────────────────
         has_a = bool(ids_a)
         has_b = bool(ids_b)
 
         if has_a and has_b:
             QMessageBox.warning(
                 self, "Attenzione",
-                "Per una cessione definitiva i giocatori devono essere\n"
+                "Per un acquisto definitivo i giocatori devono essere\n"
                 "aggiunti solo da UNA delle due squadre (il venditore)."
             )
             return
@@ -1401,7 +1401,7 @@ class MercatoWidget(QWidget):
             scadenza = datetime.date(data_norm.year + 3, 7, 1)
 
         summary = (
-            f"Confermi la seguente cessione definitiva?\n\n"
+            f"Confermi il seguente acquisto definitivo?\n\n"
             f"  Venditore :  {nome_venditrice}  (+{fm} FM)\n"
             f"  Acquirente:  {nome_acquirente}  (−{fm} FM)\n"
             f"  Data acquisto:  {data_norm.strftime('%d/%m/%Y')}\n"
@@ -1414,7 +1414,7 @@ class MercatoWidget(QWidget):
             summary += f"\n\nClausole: {clausole}"
 
         reply = QMessageBox.question(
-            self, "Conferma Cessione Definitiva", summary,
+            self, "Conferma Acquisto Definitivo", summary,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1423,7 +1423,7 @@ class MercatoWidget(QWidget):
 
         # ── Execute ──────────────────────────────────────────────────────
         try:
-            self.repo.calcola_cessione(
+            self.repo.calcola_acquisto(
                 giocatori_data=giocatori_data,
                 fq_venditrice_id=fq_venditrice_id,
                 fq_acquirente_id=fq_acquirente_id,
@@ -1433,13 +1433,13 @@ class MercatoWidget(QWidget):
                 sessions_to_expire=self.sibling_sessions,
             )
         except Exception as e:
-            QMessageBox.critical(self, "Errore", f"Impossibile eseguire la cessione:\n{e}")
+            QMessageBox.critical(self, "Errore", f"Impossibile eseguire l'acquisto:\n{e}")
             return
 
         self._reset_form()
         self._refresh_history()
-        self.cessione_committed.emit()
-        QMessageBox.information(self, "Successo", "Cessione definitiva registrata correttamente.")
+        self.operazione_committed.emit()
+        QMessageBox.information(self, "Successo", "Acquisto definitivo registrato correttamente.")
 
     # ── Scambio definitivo ────────────────────────────────────────────────
 
@@ -1587,7 +1587,7 @@ class MercatoWidget(QWidget):
 
         self._reset_form()
         self._refresh_history()
-        self.cessione_committed.emit()   # reuse same signal — refreshes all tables
+        self.operazione_committed.emit()   # reuse same signal — refreshes all tables
         QMessageBox.information(self, "Successo", "Scambio definitivo registrato correttamente.")
 
     # ── Prestito ──────────────────────────────────────────────────────────
@@ -1704,7 +1704,7 @@ class MercatoWidget(QWidget):
 
         self._reset_form()
         self._refresh_history()
-        self.cessione_committed.emit()
+        self.operazione_committed.emit()
         QMessageBox.information(self, "Successo", "Prestito registrato correttamente.")
 
     # ── Scambio prestiti ──────────────────────────────────────────────────
@@ -1817,7 +1817,7 @@ class MercatoWidget(QWidget):
 
         self._reset_form()
         self._refresh_history()
-        self.cessione_committed.emit()
+        self.operazione_committed.emit()
         QMessageBox.information(self, "Successo", "Scambio prestiti registrato correttamente.")
 
     # ── Svincolo ──────────────────────────────────────────────────────────
@@ -1887,10 +1887,10 @@ class MercatoWidget(QWidget):
 
         self._reset_form()
         self._refresh_history()
-        self.cessione_committed.emit()
+        self.operazione_committed.emit()
         QMessageBox.information(self, "Successo", f"Svincolo completato. +{int(total_vs)} FM accreditati a {nome_fq}.")
 
-    # ── Generic (non-cessione) submit ─────────────────────────────────────
+    # ── Generic (non-acquisto) submit ─────────────────────────────────────
 
     def _submit_generic(self, tipo, fq_a_id, fq_b_id, ids_a, ids_b, fm_a, fm_b, data, clausole):
         """For operation types that don't yet have business-logic side effects."""
