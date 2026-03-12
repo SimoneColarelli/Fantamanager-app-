@@ -1125,10 +1125,10 @@ class MercatoWidget(QWidget):
         layout.addLayout(hdr)
         layout.addWidget(_hsep())
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll.setStyleSheet("background: transparent;")
+        self.history_scroll = QScrollArea()
+        self.history_scroll.setWidgetResizable(True)
+        self.history_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.history_scroll.setStyleSheet("background: transparent;")
 
         self.cards_w = QWidget()
         self.cards_w.setStyleSheet("background: transparent;")
@@ -1137,8 +1137,8 @@ class MercatoWidget(QWidget):
         self.cards_vbox.setSpacing(8)
         self.cards_vbox.addStretch()
 
-        self.scroll.setWidget(self.cards_w)
-        layout.addWidget(self.scroll)
+        self.history_scroll.setWidget(self.cards_w)
+        layout.addWidget(self.history_scroll)
         return w
 
     # ── Populate ─────────────────────────────────────────────────────────
