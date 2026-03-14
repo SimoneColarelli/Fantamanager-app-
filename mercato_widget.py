@@ -695,7 +695,7 @@ class OperazioneCard(QFrame):
         self._build(op)
 
     def _build(self, op):
-        badge_fg, badge_bg = TIPO_META.get(op.tipo_operazione, ("#333", "#eee"))
+        badge_fg, badge_bg = TIPO_META.get(op.tipo_operazione, ("#333333", "#eee"))
         tipo = op.tipo_operazione
 
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -832,7 +832,7 @@ class OperazioneCard(QFrame):
 
     # ── helpers ──────────────────────────────────────────────────────────
 
-    def _lbl(self, text, bold=False, size=10, color="#333", align=Qt.AlignmentFlag.AlignLeft) -> QLabel:
+    def _lbl(self, text, bold=False, size=10, color="#333333", align=Qt.AlignmentFlag.AlignLeft) -> QLabel:
         l = QLabel(text)
         f = l.font()
         f.setBold(bold)
