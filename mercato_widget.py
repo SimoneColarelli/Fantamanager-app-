@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QFrame, QSizePolicy, QMessageBox,
     QListWidget, QListWidgetItem, QAbstractItemView,
     QDateEdit, QSpinBox, QSplitter, QToolButton,
-    QDialog, QDialogButtonBox,
+    QDialog, QDialogButtonBox, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QHeaderView,
 )
 from PySide6.QtCore import Qt, QDate, Signal
@@ -49,6 +49,7 @@ TIPO_META: Dict[str, tuple] = {
     "prestito":            ("#7a4f00", "#fff3cd"),
     "scambio prestiti":    ("#5a007a", "#f0d6ff"),
     "svincolo":            ("#8a1500", "#ffe0db"),
+    "asta":               ("#1a4a7a", "#d0e8ff"),
 }
 
 
@@ -684,6 +685,128 @@ class ClubPanel(QWidget):
             self.fm_changed.emit()   # update VS floor after batch add
 
 
+
+# ── Asta player row (one manually entered purchase) ──────────────────────────
+
+class AstaPlayerRow(QFrame):
+    """
+    A single row for manually entering one auction purchase.
+    Layout: [×] [nome ──stretch──] [Q spinbox] [FM spinbox] [date picker]
+    """
+    removed = Signal()
+
+    def __init__(self, default_date: "QDate | None" = None, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(f"""
+            AstaPlayerRow {{
+                background: {WHITE};
+                border: 1px solid {BORDER};
+                border-radius: 5px;
+            }}
+        """)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(6, 4, 6, 4)
+        row.setSpacing(6)
+
+        # Remove button
+        x = QToolButton()
+        x.setText("×")
+        x.setFixedSize(18, 18)
+        f = x.font(); f.setPointSize(10); x.setFont(f)
+        x.setStyleSheet(f"""
+            QToolButton {{ color: {MUTED}; background: transparent; border: none; padding: 0; }}
+            QToolButton:hover {{ color: {RED}; }}
+        """)
+        x.clicked.connect(self.removed.emit)
+        row.addWidget(x)
+
+        # Name
+        self.nome_edit = QLineEdit()
+        self.nome_edit.setPlaceholderText("Nome giocatore…")
+        self.nome_edit.setStyleSheet(f"""
+            QLineEdit {{
+                border: 1px solid {BORDER}; border-radius: 3px;
+                padding: 2px 5px; background: {WHITE};
+                font-size: 11px; color: {NAVY};
+            }}
+        """)
+        row.addWidget(self.nome_edit, stretch=1)
+
+        # Quotazione
+        q_lbl = QLabel("Q:")
+        q_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; background: transparent;")
+        q_lbl.setFixedWidth(16)
+        row.addWidget(q_lbl)
+
+        self.quot_spin = QSpinBox()
+        self.quot_spin.setRange(0, 9999)
+        self.quot_spin.setSpecialValueText("—")
+        self.quot_spin.setFixedWidth(58)
+        self.quot_spin.setStyleSheet(f"""
+            QSpinBox {{
+                border: 1px solid {BORDER}; border-radius: 3px;
+                padding: 1px 4px; background: {CREAM};
+                font-size: 11px; color: {NAVY};
+            }}
+        """)
+        row.addWidget(self.quot_spin)
+
+        # FM paid
+        fm_lbl = QLabel("FM:")
+        fm_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; background: transparent;")
+        fm_lbl.setFixedWidth(22)
+        row.addWidget(fm_lbl)
+
+        self.fm_spin = QSpinBox()
+        self.fm_spin.setRange(1, 999999)
+        self.fm_spin.setValue(1)
+        self.fm_spin.setFixedWidth(68)
+        self.fm_spin.setStyleSheet(f"""
+            QSpinBox {{
+                border: 1px solid {BORDER}; border-radius: 3px;
+                padding: 1px 4px; background: {CREAM};
+                font-size: 11px; color: {NAVY};
+            }}
+        """)
+        row.addWidget(self.fm_spin)
+
+        # Date
+        d_lbl = QLabel("data:")
+        d_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; background: transparent;")
+        d_lbl.setFixedWidth(30)
+        row.addWidget(d_lbl)
+
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDate(default_date or QDate.currentDate())
+        self.date_edit.setFixedWidth(95)
+        self.date_edit.setStyleSheet(f"""
+            QDateEdit {{
+                border: 1px solid {BORDER}; border-radius: 3px;
+                padding: 1px 4px; background: {WHITE};
+                font-size: 11px; color: {NAVY};
+            }}
+            QDateEdit::drop-down {{
+                subcontrol-origin: padding; subcontrol-position: top right;
+                width: 16px; border-left: 1px solid {BORDER};
+                background: {CREAM};
+            }}
+        """)
+        row.addWidget(self.date_edit)
+
+    def get_data(self) -> dict:
+        """Return dict with nome, quotazione, spesa, data_acquisto."""
+        qd = self.date_edit.date()
+        import datetime as _dt
+        return {
+            "nome":        self.nome_edit.text().strip(),
+            "quotazione":  self.quot_spin.value(),
+            "spesa":       self.fm_spin.value(),
+            "data_acquisto": _dt.date(qd.year(), qd.month(), qd.day()),
+        }
+
 # ── Exchange card (storico) ──────────────────────────────────────────────────
 
 class OperazioneCard(QFrame):
@@ -759,6 +882,8 @@ class OperazioneCard(QFrame):
         is_scambio        = (tipo in ("scambio definitivo", "scambio prestiti"))
         is_acquisto       = (tipo == "acquisto definitivo")
 
+        is_asta = (tipo == "asta")
+
         if is_svincolo:
             # Players are deleted from DB after svincolo — read from snapshot
             import json as _json
@@ -769,6 +894,9 @@ class OperazioneCard(QFrame):
                 except Exception:
                     pass
             col = self._svincolo_col(fq_a_name, op.giocatori or snapshot, fm, from_snapshot=not op.giocatori)
+            br.addWidget(col)
+        elif is_asta:
+            col = self._asta_col(fq_a_name, op.giocatori, fm)
             br.addWidget(col)
         else:
             # Assign players to the side they LEFT from:
@@ -993,6 +1121,52 @@ class OperazioneCard(QFrame):
         return w
 
 
+    def _asta_col(self, fq_name: str, giocatori, total_fm: int) -> QWidget:
+        """Single-column layout for asta: player name + Q + FM per row, then total."""
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(3)
+
+        v.addWidget(self._lbl(fq_name, bold=True, size=11, color=NAVY))
+
+        computed_total = 0
+        for g in giocatori:
+            if isinstance(g, dict):
+                nome = g.get("nome", "—")
+                vs   = int(g.get("valore_svincolo") or 0)
+                quot = int(g.get("quotazione") or 0)
+            else:
+                nome = g.nome
+                vs   = int(g.valore_svincolo or 0)
+                quot = int(g.quotazione or 0)
+            computed_total += vs
+
+            row_lbl = QLabel(
+                f"<span style='font-size:10pt; font-weight:bold; color:#1a1a1a;'>{nome}</span>"
+                f"  <span style='font-size:9pt; color:{MUTED};'>Q:{quot}  •  {vs} FM</span>"
+            )
+            row_lbl.setTextFormat(Qt.TextFormat.RichText)
+            row_lbl.setStyleSheet("background: transparent;")
+            v.addWidget(row_lbl)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {BORDER};")
+        v.addWidget(sep)
+
+        display_total = total_fm if total_fm else computed_total
+        total_lbl = QLabel(f"💰 −{display_total} FM")
+        f = total_lbl.font(); f.setBold(True); f.setPointSize(11)
+        total_lbl.setFont(f)
+        total_lbl.setStyleSheet(f"background: transparent; color: {RED};")
+        v.addWidget(total_lbl)
+
+        v.addStretch()
+        return w
+
+
 # ── Main widget ───────────────────────────────────────────────────────────────
 
 class MercatoWidget(QWidget):
@@ -1006,6 +1180,7 @@ class MercatoWidget(QWidget):
         # MainWindow populates this with persistent repo sessions so
         # calcola_acquisto can expire them before writing (releases SQLite read locks)
         self.sibling_sessions: list = []
+        self._asta_rows: list = []  # AstaPlayerRow list
         self._build_ui()
         self.refresh_combos()
         self._refresh_history()
@@ -1017,6 +1192,9 @@ class MercatoWidget(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        root.addWidget(self._build_asta_import())
+        root.addWidget(_hsep())
+
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setHandleWidth(3)
         splitter.setStyleSheet(f"QSplitter::handle {{ background: {BORDER}; }}")
@@ -1026,6 +1204,347 @@ class MercatoWidget(QWidget):
         splitter.setStretchFactor(1, 3)
 
         root.addWidget(splitter)
+
+    # ── Asta import ───────────────────────────────────────────────────────
+
+    def _build_asta_import(self) -> QWidget:
+        """
+        Top bar: [xlsx button] [csv button] [date picker] [Importa Asta button]
+        File paths are shown as truncated labels next to each button.
+        """
+        w = QWidget()
+        w.setStyleSheet(f"background: {NAVY};")
+        outer = QHBoxLayout(w)
+        outer.setContentsMargins(16, 10, 16, 10)
+        outer.setSpacing(12)
+
+        # ── state ────────────────────────────────────────────────────────
+        self._asta_xlsx_path: Optional[str] = None
+        self._asta_csv_path:  Optional[str] = None
+
+        # ── title ────────────────────────────────────────────────────────
+        title = _lbl("Importa Asta", bold=True, size=11, color=GOLD)
+        outer.addWidget(title)
+
+        sep = _vsep()
+        sep.setStyleSheet(f"color: {GOLD}55;")
+        outer.addWidget(sep)
+
+        # ── xlsx button + path label ──────────────────────────────────────
+        self._xlsx_btn = QPushButton("📂  Quotazioni (.xlsx)")
+        self._xlsx_btn.setStyleSheet(self._asta_btn_style())
+        self._xlsx_btn.clicked.connect(self._pick_xlsx)
+        outer.addWidget(self._xlsx_btn)
+
+        self._xlsx_lbl = QLabel("nessun file")
+        self._xlsx_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; background: transparent;")
+        self._xlsx_lbl.setMaximumWidth(160)
+        outer.addWidget(self._xlsx_lbl)
+
+        sep2 = _vsep()
+        sep2.setStyleSheet(f"color: {GOLD}55;")
+        outer.addWidget(sep2)
+
+        # ── csv button + path label ───────────────────────────────────────
+        self._csv_btn = QPushButton("📂  File Asta (.csv)")
+        self._csv_btn.setStyleSheet(self._asta_btn_style())
+        self._csv_btn.clicked.connect(self._pick_csv)
+        outer.addWidget(self._csv_btn)
+
+        self._csv_lbl = QLabel("nessun file")
+        self._csv_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; background: transparent;")
+        self._csv_lbl.setMaximumWidth(160)
+        outer.addWidget(self._csv_lbl)
+
+        sep3 = _vsep()
+        sep3.setStyleSheet(f"color: {GOLD}55;")
+        outer.addWidget(sep3)
+
+        # ── date picker ───────────────────────────────────────────────────
+        outer.addWidget(_lbl("Data asta:", size=10, color=CREAM))
+        self._asta_data_edit = QDateEdit()
+        self._asta_data_edit.setCalendarPopup(True)
+        self._asta_data_edit.setDate(QDate.currentDate())
+        self._asta_data_edit.setFixedWidth(110)
+        self._asta_data_edit.setStyleSheet(f"""
+            QDateEdit {{
+                border: 1px solid {GOLD};
+                border-radius: 4px;
+                padding: 3px 6px;
+                background: #1a3060;
+                font-size: 11px;
+                color: {CREAM};
+            }}
+            QDateEdit::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 18px;
+                border-left: 1px solid {GOLD};
+                background: #243870;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }}
+        """)
+        outer.addWidget(self._asta_data_edit)
+
+        outer.addStretch()
+
+        # ── import button ────────────────────────────────────────────────
+        self._importa_btn = QPushButton("✅  Importa Asta")
+        self._importa_btn.setFixedHeight(34)
+        self._importa_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {GOLD};
+                color: {NAVY};
+                border-radius: 5px;
+                padding: 0 18px;
+                font-size: 12px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{ background: #e0bc60; }}
+            QPushButton:pressed {{ background: #b8903a; }}
+        """)
+        self._importa_btn.clicked.connect(self._importa_asta)
+        outer.addWidget(self._importa_btn)
+
+        return w
+
+    @staticmethod
+    def _asta_btn_style() -> str:
+        return f"""
+            QPushButton {{
+                background: #1a3060;
+                color: {CREAM};
+                border: 1px solid {GOLD}88;
+                border-radius: 4px;
+                padding: 4px 10px;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{
+                background: #243870;
+                border-color: {GOLD};
+            }}
+        """
+
+    def _pick_xlsx(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Seleziona file Quotazioni", "", "Excel files (*.xlsx *.xls)"
+        )
+        if path:
+            self._asta_xlsx_path = path
+            import os
+            self._xlsx_lbl.setText(os.path.basename(path))
+            self._xlsx_lbl.setStyleSheet(f"color: {GOLD}; font-size: 10px; background: transparent;")
+
+    def _pick_csv(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Seleziona file Asta", "", "CSV files (*.csv *.txt)"
+        )
+        if path:
+            self._asta_csv_path = path
+            import os
+            self._csv_lbl.setText(os.path.basename(path))
+            self._csv_lbl.setStyleSheet(f"color: {GOLD}; font-size: 10px; background: transparent;")
+
+    def _importa_asta(self):
+        """
+        Parse xlsx + csv, build asta_data list, call repo.importa_asta().
+        """
+        if not self._asta_xlsx_path:
+            QMessageBox.warning(self, "Attenzione", "Seleziona il file Quotazioni (.xlsx)."); return
+        if not self._asta_csv_path:
+            QMessageBox.warning(self, "Attenzione", "Seleziona il file Asta (.csv)."); return
+
+        # ── Parse xlsx → {ext_id: (nome, quotazione)} ────────────────────
+        try:
+            from openpyxl.worksheet.worksheet import Worksheet
+            import openpyxl
+            wb = openpyxl.load_workbook(self._asta_xlsx_path, read_only=True, data_only=True)
+            ws = cast(Worksheet, wb.active)
+            quot_map: dict = {}   # ext_id → {"nome": str, "quotazione": int}
+            # Row 1 = title, Row 2 = headers, data starts at Row 3
+            for row in ws.iter_rows(min_row=3, values_only=True):
+                ext_id = None
+                # control of ext_id type is needed because some files have non-numeric garbage in that column (e.g. "ID: 1234")
+                if isinstance(row[0], (int, float)):
+                    ext_id = int(row[0])  # col 1
+                nome   = row[3]   # col 4
+                quot   = None
+                # control of quot type is needed because some files have non-numeric garbage in that column (e.g. "Q: 12")
+                if isinstance(row[8], (int, float)):
+                    quot = int(row[8])  # col 9 (Qt.A M)
+                if ext_id is not None and nome is not None:
+                    quot_map[int(ext_id)] = {
+                        "nome":      str(nome),
+                        "quotazione": int(quot) if quot is not None else 0,
+                    }
+            wb.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", f"Impossibile leggere il file Quotazioni:\n{e}"); return
+
+        # ── Parse csv → [{ext_id, fq_nome, spesa}, ...] ──────────────────
+        try:
+            asta_rows: list = []
+            with open(self._asta_csv_path, encoding="utf-8-sig", errors="replace") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line or line.startswith("$"):
+                        continue
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) < 3:
+                        continue
+                    fq_nome = parts[0]
+                    try:
+                        ext_id = int(parts[1])
+                        spesa  = int(parts[2])
+                    except ValueError:
+                        continue
+                    asta_rows.append({"ext_id": ext_id, "fq_nome": fq_nome, "spesa": spesa})
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", f"Impossibile leggere il file Asta:\n{e}"); return
+
+        if not asta_rows:
+            QMessageBox.warning(self, "Attenzione", "Il file Asta non contiene righe valide."); return
+
+        # ── Cross-reference: build asta_data ─────────────────────────────
+        missing_ids: list = []
+        asta_data: list = []
+        for row in asta_rows:
+            info = quot_map.get(row["ext_id"])
+            if info is None:
+                missing_ids.append(row["ext_id"])
+                continue
+            asta_data.append({
+                "ext_id":    row["ext_id"],
+                "nome":      info["nome"],
+                "quotazione": info["quotazione"],
+                "fq_nome":   row["fq_nome"],
+                "spesa":     row["spesa"],
+            })
+
+        # Report missing ids but don't block import of found players
+        if missing_ids:
+            QMessageBox.warning(
+                self, "ID non trovati",
+                f"{len(missing_ids)} ID non trovati nel file Quotazioni e verranno saltati:\n"
+                + ", ".join(str(i) for i in missing_ids[:20])
+                + ("…" if len(missing_ids) > 20 else "")
+            )
+
+        if not asta_data:
+            QMessageBox.warning(self, "Attenzione", "Nessun giocatore valido da importare."); return
+
+        # ── Confirmation summary ──────────────────────────────────────────
+        from collections import Counter
+        fq_counts = Counter(r["fq_nome"] for r in asta_data)
+        lines = [f"  • {nome}: {n} giocatori" for nome, n in sorted(fq_counts.items())]
+        qd = self._asta_data_edit.date()
+        data_asta = datetime.date(qd.year(), qd.month(), qd.day())
+
+        reply = QMessageBox.question(
+            self, "Conferma Importazione Asta",
+            f"Importare {len(asta_data)} giocatori per {len(fq_counts)} squadre?\n"
+            f"Data asta: {data_asta.strftime('%d/%m/%Y')}\n\n"
+            + "\n".join(lines),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # ── Execute ───────────────────────────────────────────────────────
+        try:
+            self.repo.importa_asta(
+                asta_data=asta_data,
+                data_asta=data_asta,
+                sessions_to_expire=self.sibling_sessions,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", f"Impossibile importare l'asta:\n{e}"); return
+
+        self._refresh_history()
+        self.operazione_committed.emit()
+        QMessageBox.information(
+            self, "Successo",
+            f"Asta importata: {len(asta_data)} giocatori per {len(fq_counts)} squadre."
+        )
+
+    # ── Asta manual panel ─────────────────────────────────────────────────
+
+    def _build_asta_panel(self) -> QWidget:
+        """
+        Panel shown when tipo == 'asta':
+          - Club selector (single fantasquadra)
+          - Scrollable list of AstaPlayerRow
+          - '+ Aggiungi giocatore' button
+        """
+        w = QWidget()
+        w.setStyleSheet(f"background: {WHITE}; border: 1px solid {BORDER}; border-radius: 8px;")
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(14, 12, 14, 12)
+        outer.setSpacing(8)
+
+        outer.addWidget(_lbl("Squadra", bold=True, size=11, color=NAVY))
+
+        self.asta_club_combo = QComboBox()
+        self.asta_club_combo.setStyleSheet(COMBO_STYLE)
+        outer.addWidget(self.asta_club_combo)
+
+        # Scrollable list of rows
+        self._asta_list_scroll = QScrollArea()
+        self._asta_list_scroll.setWidgetResizable(True)
+        self._asta_list_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._asta_list_scroll.setMinimumHeight(120)
+        self._asta_list_scroll.setStyleSheet("background: transparent;")
+
+        self._asta_rows_widget = QWidget()
+        self._asta_rows_widget.setStyleSheet("background: transparent;")
+        self._asta_rows_vbox = QVBoxLayout(self._asta_rows_widget)
+        self._asta_rows_vbox.setContentsMargins(0, 0, 0, 0)
+        self._asta_rows_vbox.setSpacing(4)
+        self._asta_rows_vbox.addStretch()
+
+        self._asta_list_scroll.setWidget(self._asta_rows_widget)
+        outer.addWidget(self._asta_list_scroll)
+
+        add_btn = QPushButton("＋  Aggiungi acquisto")
+        add_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {CREAM}; color: {NAVY};
+                border: 1px dashed {NAVY}77; border-radius: 5px;
+                padding: 5px 10px; font-size: 11px;
+            }}
+            QPushButton:hover {{
+                background: {NAVY}; color: {WHITE}; border-style: solid;
+            }}
+        """)
+        add_btn.clicked.connect(self._add_asta_row)
+        outer.addWidget(add_btn)
+
+        return w
+
+    def _add_asta_row(self):
+        """Add a new AstaPlayerRow to the asta panel."""
+        row = AstaPlayerRow(default_date=self.data_edit.date())
+        row.removed.connect(lambda r=row: self._remove_asta_row(r))
+        self._asta_rows.append(row)
+        # Insert before the trailing stretch
+        self._asta_rows_vbox.insertWidget(self._asta_rows_vbox.count() - 1, row)
+        self._asta_rows_widget.updateGeometry()
+
+    def _remove_asta_row(self, row):
+        if row in self._asta_rows:
+            self._asta_rows.remove(row)
+            self._asta_rows_vbox.removeWidget(row)
+            row.deleteLater()
+            self._asta_rows_widget.updateGeometry()
+
+    def _clear_asta_rows(self):
+        for row in list(self._asta_rows):
+            self._asta_rows_vbox.removeWidget(row)
+            row.deleteLater()
+        self._asta_rows.clear()
+        self._asta_rows_widget.updateGeometry()
 
     # ── Form ─────────────────────────────────────────────────────────────
 
@@ -1066,6 +1585,11 @@ class MercatoWidget(QWidget):
         panels.addWidget(self._vsep_widget)
         panels.addWidget(self.panel_b)
         outer.addLayout(panels)
+
+        # Asta panel — visible only when tipo == "asta"
+        self._asta_panel = self._build_asta_panel()
+        self._asta_panel.setVisible(False)
+        outer.addWidget(self._asta_panel)
 
         # Bottom strip
         outer.addWidget(_hsep())
@@ -1149,6 +1673,14 @@ class MercatoWidget(QWidget):
         fqs = self.repo.active_fantasquadre()
         self.panel_a.set_fantasquadre(fqs, with_empty=True)
         self.panel_b.set_fantasquadre(fqs, with_empty=True)
+        # Populate asta club combo
+        self.asta_club_combo.blockSignals(True)
+        self.asta_club_combo.clear()
+        self.asta_club_combo.addItem("— seleziona squadra —", userData=None)
+        for fq in fqs:
+            if isinstance(fq.nome, str):
+                self.asta_club_combo.addItem(fq.nome, userData=fq.id)
+        self.asta_club_combo.blockSignals(False)
         self._on_tipo_changed(self.tipo_combo.currentText())
 
     def _load_players_for_panel(self, panel: ClubPanel, squadra_nome: str):
@@ -1165,12 +1697,19 @@ class MercatoWidget(QWidget):
         is_svincolo  = (tipo == "svincolo")
         is_prestito  = (tipo == "prestito")
         is_scambio_p = (tipo == "scambio prestiti")
-        self.panel_b.setVisible(not is_svincolo)
-        self._vsep_widget.setVisible(not is_svincolo)
-        # prestito: only panel_a (the lender) shows fine_prestito per player
-        # scambio prestiti: both panels show it
-        self.panel_a.set_fine_prestito_mode(is_prestito or is_scambio_p)
-        self.panel_b.set_fine_prestito_mode(is_scambio_p)
+        is_asta      = (tipo == "asta")
+
+        # Show/hide standard panels vs asta panel
+        self.panel_a.setVisible(not is_asta)
+        self.panel_b.setVisible(not is_svincolo and not is_asta)
+        self._vsep_widget.setVisible(not is_svincolo and not is_asta)
+        self._asta_panel.setVisible(is_asta)
+
+        if not is_asta:
+            # prestito: only panel_a (the lender) shows fine_prestito per player
+            # scambio prestiti: both panels show it
+            self.panel_a.set_fine_prestito_mode(is_prestito or is_scambio_p)
+            self.panel_b.set_fine_prestito_mode(is_scambio_p)
 
     def _on_fm_mutex(self):
         """
@@ -1242,6 +1781,11 @@ class MercatoWidget(QWidget):
         qd        = self.data_edit.date()
         data      = datetime.date(qd.year(), qd.month(), qd.day())
         clausole  = self.clausole_edit.text().strip() or None
+
+        # ── Asta has its own validation inside _submit_asta ──────────────
+        if tipo == "asta":
+            self._submit_asta()
+            return
 
         # ── Shared basic validation ──────────────────────────────────────
         if fq_a_id is None:
@@ -1890,6 +2434,76 @@ class MercatoWidget(QWidget):
         self.operazione_committed.emit()
         QMessageBox.information(self, "Successo", f"Svincolo completato. +{int(total_vs)} FM accreditati a {nome_fq}.")
 
+    # ── Asta (manuale) ───────────────────────────────────────────────────────
+
+    def _submit_asta(self):
+        """
+        Validate and commit a manual asta entry for one fantasquadra.
+        Each AstaPlayerRow provides: nome, quotazione, spesa, data_acquisto.
+        """
+        fq_id = self.asta_club_combo.currentData()
+        if fq_id is None:
+            QMessageBox.warning(self, "Attenzione", "Seleziona la squadra."); return
+
+        if not self._asta_rows:
+            QMessageBox.warning(self, "Attenzione", "Aggiungi almeno un giocatore."); return
+
+        # Collect and validate rows
+        giocatori_data = []
+        for i, row in enumerate(self._asta_rows, 1):
+            d = row.get_data()
+            if not d["nome"]:
+                QMessageBox.warning(
+                    self, "Attenzione",
+                    f"Il giocatore alla riga {i} non ha un nome."
+                ); return
+            if d["quotazione"] == 0:
+                QMessageBox.warning(
+                    self, "Attenzione",
+                    f"La quotazione del giocatore '{d['nome']}' è 0."
+                ); return
+            giocatori_data.append(d)
+
+        total_fm = sum(d["spesa"] for d in giocatori_data)
+        fqs = {fq.id: fq.nome for fq in self.repo.active_fantasquadre()}
+        nome_fq = fqs.get(fq_id, str(fq_id))
+
+        lines = [
+            f"  • {d['nome']}  Q:{d['quotazione']}  FM:{d['spesa']}  ({d['data_acquisto'].strftime('%d/%m/%Y')})"
+            for d in giocatori_data
+        ]
+        summary = (
+            f"Confermi l'importazione asta per {nome_fq}?\n\n"
+            f"Giocatori: {len(giocatori_data)}\n"
+            f"Totale FM speso: −{total_fm} FM\n\n"
+            + "\n".join(lines)
+        )
+
+        reply = QMessageBox.question(
+            self, "Conferma Asta", summary,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self.repo.calcola_asta_manuale(
+                fq_id=fq_id,
+                giocatori_data=giocatori_data,
+                sessions_to_expire=self.sibling_sessions,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", f"Impossibile registrare l'asta:\n{e}"); return
+
+        self._reset_form()
+        self._refresh_history()
+        self.operazione_committed.emit()
+        QMessageBox.information(
+            self, "Successo",
+            f"Asta registrata: {len(giocatori_data)} giocatori, −{total_fm} FM da {nome_fq}."
+        )
+
     # ── Generic (non-acquisto) submit ─────────────────────────────────────
 
     def _submit_generic(self, tipo, fq_a_id, fq_b_id, ids_a, ids_b, fm_a, fm_b, data, clausole):
@@ -1928,6 +2542,8 @@ class MercatoWidget(QWidget):
     def _reset_form(self):
         self.panel_a.reset()
         self.panel_b.reset()
+        self._clear_asta_rows()
+        self.asta_club_combo.setCurrentIndex(0)
         self.tipo_combo.setCurrentIndex(0)
         self.data_edit.setDate(QDate.currentDate())
         self.clausole_edit.clear()

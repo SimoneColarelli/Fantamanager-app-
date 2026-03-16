@@ -474,6 +474,221 @@ class OperazioneRepository:
         finally:
             session.close()
 
+    # ------------------------------------------------------------------ #
+    #  BUSINESS LOGIC — IMPORTA ASTA                                       #
+    # ------------------------------------------------------------------ #
+
+    def importa_asta(
+        self,
+        asta_data: List[dict],
+        # [{"ext_id": int, "nome": str, "quotazione": int,
+        #   "fq_nome": str, "spesa": int}, ...]
+        data_asta: datetime.date,
+        sessions_to_expire: Optional[List] = None,
+    ) -> List[Operazione]:
+        """
+        Import an auction result.
+
+        For each fantasquadra that appears in asta_data:
+          1. CREATE new Giocatore rows (players don't exist in DB yet).
+          2. Deduct total spesa from that fantasquadra's FM balance.
+          3. Record one 'acquisto definitivo' Operazione per fantasquadra.
+
+        Returns the list of created Operazione objects.
+        """
+        from constants import calculate_fascia
+
+        for s in (sessions_to_expire or []):
+            try:
+                s.expire_all()
+            except Exception:
+                pass
+
+        session = self.session_factory()
+        try:
+            # Normalise data and compute scadenza_contratto
+            data_norm = data_asta.replace(day=1)
+            if data_norm.month in (1, 2):
+                scadenza = datetime.date(data_norm.year + 2, 7, 1)
+            else:
+                scadenza = datetime.date(data_norm.year + 3, 7, 1)
+
+            # Map fantasquadra name → object (need to mutate .fm)
+            fqs = session.query(Fantasquadra).filter_by(deleted=False).all()
+            fq_obj_map = {fq.nome: fq for fq in fqs}
+            fq_map = {fq.nome: fq.id for fq in fqs}
+
+            # Group purchases by fantasquadra name
+            from collections import defaultdict
+            by_fq: dict = defaultdict(list)
+            for row in asta_data:
+                by_fq[row["fq_nome"]].append(row)
+
+            created_ops: List[Operazione] = []
+
+            for fq_nome, rows in by_fq.items():
+                fq_id = fq_map.get(fq_nome)
+                fq    = fq_obj_map.get(fq_nome)
+                if fq_id is None or fq is None:
+                    raise ValueError(
+                        f"Fantasquadra '{fq_nome}' non trovata nel database. "
+                        f"Verifica che il nome nel file CSV corrisponda esattamente."
+                    )
+
+                new_giocatori: List[Giocatore] = []
+                for row in rows:
+                    spesa = float(row["spesa"])
+                    g = Giocatore(
+                        nome             = row["nome"],
+                        squadra          = fq_nome,
+                        spesa            = spesa,
+                        data_acquisto    = data_norm,
+                        fascia           = str(calculate_fascia(int(spesa))),
+                        quotazione       = row["quotazione"],
+                        dq               = 0,
+                        valore_svincolo  = spesa,
+                        scadenza_contratto = scadenza,
+                        in_prestito_a    = None,
+                        inizio_prestito  = None,
+                        fine_prestito    = None,
+                        convocato        = False,
+                        in_serie_a       = True,
+                        deleted          = False,
+                    )
+                    session.add(g)
+                    new_giocatori.append(g)
+
+                # Flush so giocatori get their PKs before linking to Operazione
+                session.flush()
+
+                total_fm = int(sum(row["spesa"] for row in rows))
+
+                # Deduct FM spent at auction from this fantasquadra
+                fq.fm -= total_fm
+
+                op = Operazione(
+                    fantasquadra_a_id  = fq_id,
+                    fantasquadra_b_id  = None,
+                    tipo_operazione    = "acquisto definitivo",
+                    conguaglio         = total_fm,
+                    conguaglio_da_id   = fq_id,
+                    data               = data_norm,
+                    clausole           = "Importato da asta",
+                )
+                op.giocatori = new_giocatori
+                session.add(op)
+                created_ops.append(op)
+
+            session.commit()
+
+            # Expunge so callers can read attributes after session close
+            for op in created_ops:
+                try:
+                    session.expunge(op)
+                except Exception:
+                    pass
+
+            return created_ops
+
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+
+    def calcola_asta_manuale(
+        self,
+        fq_id: int,
+        giocatori_data: List[dict],
+        # [{"nome": str, "quotazione": int, "spesa": int, "data_acquisto": date}, ...]
+        sessions_to_expire: Optional[List] = None,
+    ) -> "Operazione":
+        """
+        Register a manual asta entry for a single fantasquadra.
+
+        For each player in giocatori_data:
+          - Creates a new Giocatore row with all required fields.
+          - spesa = valore_svincolo = amount paid at auction.
+          - scadenza_contratto computed from data_acquisto.
+          - Deducts total spesa from fq.fm.
+        Records one 'asta' Operazione linking all created players.
+        """
+        from constants import calculate_fascia
+
+        for s in (sessions_to_expire or []):
+            try:
+                s.expire_all()
+            except Exception:
+                pass
+
+        session = self.session_factory()
+        try:
+            fq = session.query(Fantasquadra).filter_by(id=fq_id).one()
+
+            new_giocatori: List[Giocatore] = []
+            total_fm = 0
+
+            for row in giocatori_data:
+                spesa = float(row["spesa"])
+                data_norm = row["data_acquisto"].replace(day=1)
+                if data_norm.month in (1, 2):
+                    scadenza = datetime.date(data_norm.year + 2, 7, 1)
+                else:
+                    scadenza = datetime.date(data_norm.year + 3, 7, 1)
+
+                g = Giocatore(
+                    nome               = row["nome"],
+                    squadra            = fq.nome,
+                    spesa              = spesa,
+                    data_acquisto      = data_norm,
+                    fascia             = str(calculate_fascia(int(spesa))),
+                    quotazione         = int(row["quotazione"]),
+                    dq                 = 0,
+                    valore_svincolo    = spesa,
+                    scadenza_contratto = scadenza,
+                    in_prestito_a      = None,
+                    inizio_prestito    = None,
+                    fine_prestito      = None,
+                    convocato          = False,
+                    in_serie_a         = True,
+                    deleted            = False,
+                )
+                session.add(g)
+                new_giocatori.append(g)
+                total_fm += int(spesa)
+
+            # Flush to get PKs before linking to Operazione
+            session.flush()
+
+            # Deduct FM from fantasquadra
+            fq.fm -= total_fm
+
+            # Use data of the first player as the operation date (they may differ)
+            op_data = giocatori_data[0]["data_acquisto"].replace(day=1) if giocatori_data else datetime.date.today()
+
+            op = Operazione(
+                fantasquadra_a_id = fq_id,
+                fantasquadra_b_id = None,
+                tipo_operazione   = "asta",
+                conguaglio        = total_fm,
+                conguaglio_da_id  = fq_id,
+                data              = op_data,
+                clausole          = "",
+            )
+            op.giocatori = new_giocatori
+            session.add(op)
+            session.commit()
+
+            session.expunge(op)
+            return op
+
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def giocatori_by_squadra(self, squadra_nome: str) -> List[Giocatore]:
         """Return active players belonging to the given fantasquadra name,
         ordered by name.  quotazione and valore_svincolo are loaded as-is."""
