@@ -1,0 +1,76 @@
+{
+    "fantasquadre": [
+        {
+            "id": 1,
+            "nome": "Zarro Team",
+            "fm": 1815,
+            "campionati": 0,
+            "coppe": 0,
+            "supercoppe": 0,
+            "deleted": false
+        },
+        {
+            "id": 2,
+            "nome": "Atletico Abusivo",
+            "fm": 757,
+            "campionati": 0,
+            "coppe": 0,
+            "supercoppe": 0,
+            "deleted": false
+        },
+        {
+            "id": 3,
+            "nome": "Red Dragon",
+            "fm": 2889,
+            "campionati": 0,
+            "coppe": 0,
+            "supercoppe": 0,
+            "deleted": false
+        },
+        {
+            "id": 4,
+            "nome": "Real Madrink",
+            "fm": 1761,
+            "campionati": 0,
+            "coppe": 0,
+            "supercoppe": 0,
+            "deleted": false
+        },
+        {
+            "id": 5,
+            "nome": "Spal Letti",
+            "fm": 720,
+            "campionati": 0,
+            "coppe": 0,
+            "supercoppe": 0,
+            "deleted": false
+        },
+        {
+            "id": 6,
+            "nome": "Bayern Muten",
+            "fm": 2634,
+            "campionati": 0,
+            "coppe": 0,
+            "supercoppe": 0,
+            "deleted": false
+        },
+        {
+            "id": 7,
+            "nome": "I Cammelloni",
+            "fm": 3095,
+            "campionati": 0,
+            "coppe": 0,
+            "supercoppe": 0,
+            "deleted": false
+        },
+        {
+            "id": 8,
+            "nome": "Bomberoni",
+            "fm": 1811,
+            "campionati": 0,
+            "coppe": 0,
+            "supercoppe": 0,
+            "deleted": false
+        }
+    ]
+}

@@ -492,7 +492,7 @@ class OperazioneRepository:
         For each fantasquadra that appears in asta_data:
           1. CREATE new Giocatore rows (players don't exist in DB yet).
           2. Deduct total spesa from that fantasquadra's FM balance.
-          3. Record one 'acquisto definitivo' Operazione per fantasquadra.
+          3. Record one 'asta' Operazione per fantasquadra.
 
         Returns the list of created Operazione objects.
         """
@@ -569,11 +569,11 @@ class OperazioneRepository:
                 op = Operazione(
                     fantasquadra_a_id  = fq_id,
                     fantasquadra_b_id  = None,
-                    tipo_operazione    = "acquisto definitivo",
+                    tipo_operazione    = "asta",
                     conguaglio         = total_fm,
                     conguaglio_da_id   = fq_id,
                     data               = data_norm,
-                    clausole           = "Importato da asta",
+                    clausole           = f"Asta avvenuta in data {data_asta.strftime('%d/%m/%Y')}",
                 )
                 op.giocatori = new_giocatori
                 session.add(op)
@@ -601,7 +601,8 @@ class OperazioneRepository:
         self,
         fq_id: int,
         giocatori_data: List[dict],
-        # [{"nome": str, "quotazione": int, "spesa": int, "data_acquisto": date}, ...]
+        # [{"nome": str, "quotazione": int, "spesa": int}, ...]
+        data_asta: datetime.date,
         sessions_to_expire: Optional[List] = None,
     ) -> "Operazione":
         """
@@ -626,16 +627,18 @@ class OperazioneRepository:
         try:
             fq = session.query(Fantasquadra).filter_by(id=fq_id).one()
 
+            # Normalise the single shared date for all players
+            data_norm = (data_asta or datetime.date.today()).replace(day=1)
+            if data_norm.month in (1, 2):
+                scadenza = datetime.date(data_norm.year + 2, 7, 1)
+            else:
+                scadenza = datetime.date(data_norm.year + 3, 7, 1)
+
             new_giocatori: List[Giocatore] = []
             total_fm = 0
 
             for row in giocatori_data:
                 spesa = float(row["spesa"])
-                data_norm = row["data_acquisto"].replace(day=1)
-                if data_norm.month in (1, 2):
-                    scadenza = datetime.date(data_norm.year + 2, 7, 1)
-                else:
-                    scadenza = datetime.date(data_norm.year + 3, 7, 1)
 
                 g = Giocatore(
                     nome               = row["nome"],
@@ -664,17 +667,14 @@ class OperazioneRepository:
             # Deduct FM from fantasquadra
             fq.fm -= total_fm
 
-            # Use data of the first player as the operation date (they may differ)
-            op_data = giocatori_data[0]["data_acquisto"].replace(day=1) if giocatori_data else datetime.date.today()
-
             op = Operazione(
                 fantasquadra_a_id = fq_id,
                 fantasquadra_b_id = None,
                 tipo_operazione   = "asta",
                 conguaglio        = total_fm,
                 conguaglio_da_id  = fq_id,
-                data              = op_data,
-                clausole          = "",
+                data              = data_norm,
+                clausole          = f"Asta avvenuta in data {data_asta.strftime('%d/%m/%Y')}",
             )
             op.giocatori = new_giocatori
             session.add(op)

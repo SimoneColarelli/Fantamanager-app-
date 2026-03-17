@@ -691,11 +691,12 @@ class ClubPanel(QWidget):
 class AstaPlayerRow(QFrame):
     """
     A single row for manually entering one auction purchase.
-    Layout: [×] [nome ──stretch──] [Q spinbox] [FM spinbox] [date picker]
+    Layout: [×] [nome ──stretch──] [Q spinbox] [FM spinbox]
+    Date is shared for the whole asta operation (from the form's data_edit).
     """
     removed = Signal()
 
-    def __init__(self, default_date: "QDate | None" = None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(f"""
             AstaPlayerRow {{
@@ -754,7 +755,7 @@ class AstaPlayerRow(QFrame):
         row.addWidget(self.quot_spin)
 
         # FM paid
-        fm_lbl = QLabel("FM:")
+        fm_lbl = QLabel("FM: ")
         fm_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; background: transparent;")
         fm_lbl.setFixedWidth(22)
         row.addWidget(fm_lbl)
@@ -772,39 +773,12 @@ class AstaPlayerRow(QFrame):
         """)
         row.addWidget(self.fm_spin)
 
-        # Date
-        d_lbl = QLabel("data:")
-        d_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; background: transparent;")
-        d_lbl.setFixedWidth(30)
-        row.addWidget(d_lbl)
-
-        self.date_edit = QDateEdit()
-        self.date_edit.setCalendarPopup(True)
-        self.date_edit.setDate(default_date or QDate.currentDate())
-        self.date_edit.setFixedWidth(95)
-        self.date_edit.setStyleSheet(f"""
-            QDateEdit {{
-                border: 1px solid {BORDER}; border-radius: 3px;
-                padding: 1px 4px; background: {WHITE};
-                font-size: 11px; color: {NAVY};
-            }}
-            QDateEdit::drop-down {{
-                subcontrol-origin: padding; subcontrol-position: top right;
-                width: 16px; border-left: 1px solid {BORDER};
-                background: {CREAM};
-            }}
-        """)
-        row.addWidget(self.date_edit)
-
     def get_data(self) -> dict:
-        """Return dict with nome, quotazione, spesa, data_acquisto."""
-        qd = self.date_edit.date()
-        import datetime as _dt
+        """Return dict with nome, quotazione, spesa (date is handled at operation level)."""
         return {
-            "nome":        self.nome_edit.text().strip(),
-            "quotazione":  self.quot_spin.value(),
-            "spesa":       self.fm_spin.value(),
-            "data_acquisto": _dt.date(qd.year(), qd.month(), qd.day()),
+            "nome":       self.nome_edit.text().strip(),
+            "quotazione": self.quot_spin.value(),
+            "spesa":      self.fm_spin.value(),
         }
 
 # ── Exchange card (storico) ──────────────────────────────────────────────────
@@ -1145,7 +1119,7 @@ class OperazioneCard(QFrame):
 
             row_lbl = QLabel(
                 f"<span style='font-size:10pt; font-weight:bold; color:#1a1a1a;'>{nome}</span>"
-                f"  <span style='font-size:9pt; color:{MUTED};'>Q:{quot}  •  {vs} FM</span>"
+                f"  <span style='font-size:9pt; color:{MUTED};'>Q: {quot}  -  {vs} FM</span>"
             )
             row_lbl.setTextFormat(Qt.TextFormat.RichText)
             row_lbl.setStyleSheet("background: transparent;")
@@ -1525,7 +1499,7 @@ class MercatoWidget(QWidget):
 
     def _add_asta_row(self):
         """Add a new AstaPlayerRow to the asta panel."""
-        row = AstaPlayerRow(default_date=self.data_edit.date())
+        row = AstaPlayerRow()
         row.removed.connect(lambda r=row: self._remove_asta_row(r))
         self._asta_rows.append(row)
         # Insert before the trailing stretch
@@ -2464,16 +2438,21 @@ class MercatoWidget(QWidget):
                 ); return
             giocatori_data.append(d)
 
+        # Read the single shared date from the form
+        qd = self.data_edit.date()
+        data_asta = datetime.date(qd.year(), qd.month(), qd.day())
+
         total_fm = sum(d["spesa"] for d in giocatori_data)
         fqs = {fq.id: fq.nome for fq in self.repo.active_fantasquadre()}
         nome_fq = fqs.get(fq_id, str(fq_id))
 
         lines = [
-            f"  • {d['nome']}  Q:{d['quotazione']}  FM:{d['spesa']}  ({d['data_acquisto'].strftime('%d/%m/%Y')})"
+            f"  • {d['nome']}  Q:{d['quotazione']}  FM:{d['spesa']}"
             for d in giocatori_data
         ]
         summary = (
             f"Confermi l'importazione asta per {nome_fq}?\n\n"
+            f"Data asta: {data_asta.strftime('%d/%m/%Y')}\n"
             f"Giocatori: {len(giocatori_data)}\n"
             f"Totale FM speso: −{total_fm} FM\n\n"
             + "\n".join(lines)
@@ -2491,6 +2470,7 @@ class MercatoWidget(QWidget):
             self.repo.calcola_asta_manuale(
                 fq_id=fq_id,
                 giocatori_data=giocatori_data,
+                data_asta=data_asta,
                 sessions_to_expire=self.sibling_sessions,
             )
         except Exception as e:

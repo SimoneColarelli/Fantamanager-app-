@@ -20,10 +20,17 @@ from mercato_widget import MercatoWidget
 def _count_in_rosa(fantasquadra):
     session = SessionLocal()
     try:
-        return session.query(func.count(Giocatore.id)).filter(
+        not_in_loan = session.query(func.count(Giocatore.id)).filter(
             Giocatore.squadra == fantasquadra.nome,
+            Giocatore.in_prestito_a == None,
             Giocatore.deleted == False
         ).scalar() or 0
+        in_loan = session.query(func.count(Giocatore.id)).filter(
+            Giocatore.squadra == fantasquadra.nome,
+            Giocatore.in_prestito_a == fantasquadra.nome,
+            Giocatore.deleted == False
+        ).scalar() or 0
+        return not_in_loan + in_loan
     finally:
         session.close()
 
@@ -31,11 +38,18 @@ def _count_in_rosa(fantasquadra):
 def _count_convocati(fantasquadra):
     session = SessionLocal()
     try:
-        return session.query(func.count(Giocatore.id)).filter(
+        not_in_loan = session.query(func.count(Giocatore.id)).filter(
             Giocatore.squadra == fantasquadra.nome,
+            Giocatore.in_prestito_a == None,
             Giocatore.convocato == True,
             Giocatore.deleted == False
         ).scalar() or 0
+        in_loan = session.query(func.count(Giocatore.id)).filter(
+            Giocatore.in_prestito_a == fantasquadra.nome,
+            Giocatore.convocato == True,
+            Giocatore.deleted == False
+        ).scalar() or 0
+        return not_in_loan + in_loan
     finally:
         session.close()
 

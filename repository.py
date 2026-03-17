@@ -79,6 +79,10 @@ class Repository:
         for field, value in data.items():
             if field not in self.fields:
                 continue
+            # Skip fields that are not actual DB columns on the model
+            # (e.g. computed display-only fields like in_rosa, convocati)
+            if not hasattr(self.model, field):
+                continue
             if value == "" or value is None:
                 converted[field] = None
                 continue
