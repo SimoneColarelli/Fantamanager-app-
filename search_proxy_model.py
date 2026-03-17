@@ -7,10 +7,12 @@ class SearchProxyModel(QSortFilterProxyModel):
         self.squadra_text = ""
         self.nome_col_index = -1
         self.squadra_col_index = -1
+        self.in_prestito_a_col_index = -1
 
-    def set_filter_columns(self, nome_idx, squadra_idx):
+    def set_filter_columns(self, nome_idx, squadra_idx, in_prestito_a_idx=-1):
         self.nome_col_index = nome_idx
         self.squadra_col_index = squadra_idx
+        self.in_prestito_a_col_index = in_prestito_a_idx
         self.invalidateFilter()
 
     def set_search_text(self, text):
@@ -36,14 +38,22 @@ class SearchProxyModel(QSortFilterProxyModel):
                 nome_match = False
                 
         # 2. Filtro Squadra
+        # A row matches if:
+        #   (squadra == selected AND in_prestito_a is empty)  — player registered to this team and not on loan
+        #   OR in_prestito_a == selected                       — player on loan TO this team
         squadra_match = True
         if self.squadra_text and self.squadra_text != "Tutte le squadre" and self.squadra_col_index != -1:
-            index = self.sourceModel().index(source_row, self.squadra_col_index, source_parent)
-            data = self.sourceModel().data(index, Qt.ItemDataRole.DisplayRole)
-            if data is not None:
-                squadra_match = self.squadra_text == str(data)
-            else:
-                squadra_match = False
+            squadra_idx = self.sourceModel().index(source_row, self.squadra_col_index, source_parent)
+            squadra_val = self.sourceModel().data(squadra_idx, Qt.ItemDataRole.DisplayRole) or ""
+
+            in_prestito_val = ""
+            if self.in_prestito_a_col_index != -1:
+                prestito_idx = self.sourceModel().index(source_row, self.in_prestito_a_col_index, source_parent)
+                in_prestito_val = self.sourceModel().data(prestito_idx, Qt.ItemDataRole.DisplayRole) or ""
+
+            owns_and_not_loaned = (squadra_val == self.squadra_text and in_prestito_val == "")
+            on_loan_here        = (in_prestito_val == self.squadra_text)
+            squadra_match = owns_and_not_loaned or on_loan_here
 
         return nome_match and squadra_match
 

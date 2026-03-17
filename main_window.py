@@ -18,38 +18,49 @@ from mercato_widget import MercatoWidget
 
 
 def _count_in_rosa(fantasquadra):
+    """Count players effectively in this team's rosa:
+      - registered to this team AND not on loan elsewhere
+      - OR on loan TO this team from another team
+    """
+    from sqlalchemy import or_
     session = SessionLocal()
     try:
-        not_in_loan = session.query(func.count(Giocatore.id)).filter(
-            Giocatore.squadra == fantasquadra.nome,
-            Giocatore.in_prestito_a == None,
-            Giocatore.deleted == False
+        nome = fantasquadra.nome
+        return session.query(func.count(Giocatore.id)).filter(
+            Giocatore.deleted == False,
+            Giocatore.in_serie_a == True,
+            or_(
+                # owns the player and hasn't loaned them out
+                (Giocatore.squadra == nome) & (
+                    (Giocatore.in_prestito_a == None) |
+                    (Giocatore.in_prestito_a == "")
+                ),
+                # player is on loan TO this team
+                Giocatore.in_prestito_a == nome,
+            )
         ).scalar() or 0
-        in_loan = session.query(func.count(Giocatore.id)).filter(
-            Giocatore.squadra == fantasquadra.nome,
-            Giocatore.in_prestito_a == fantasquadra.nome,
-            Giocatore.deleted == False
-        ).scalar() or 0
-        return not_in_loan + in_loan
     finally:
         session.close()
 
 
 def _count_convocati(fantasquadra):
+    """Count convocated players effectively in this team's rosa (same logic as in_rosa)."""
+    from sqlalchemy import or_
     session = SessionLocal()
     try:
-        not_in_loan = session.query(func.count(Giocatore.id)).filter(
-            Giocatore.squadra == fantasquadra.nome,
-            Giocatore.in_prestito_a == None,
+        nome = fantasquadra.nome
+        return session.query(func.count(Giocatore.id)).filter(
+            Giocatore.deleted == False,
             Giocatore.convocato == True,
-            Giocatore.deleted == False
+            Giocatore.in_serie_a == True,
+            or_(
+                (Giocatore.squadra == nome) & (
+                    (Giocatore.in_prestito_a == None) |
+                    (Giocatore.in_prestito_a == "")
+                ),
+                Giocatore.in_prestito_a == nome,
+            )
         ).scalar() or 0
-        in_loan = session.query(func.count(Giocatore.id)).filter(
-            Giocatore.in_prestito_a == fantasquadra.nome,
-            Giocatore.convocato == True,
-            Giocatore.deleted == False
-        ).scalar() or 0
-        return not_in_loan + in_loan
     finally:
         session.close()
 
@@ -95,9 +106,10 @@ class MainWindow(QMainWindow):
         self.g_proxy_model = SearchProxyModel()
         self.g_proxy_model.setSourceModel(self.g_model)
         try:
-            nome_idx = GIOCATORI_FIELDS.index("nome")
-            squadra_idx = GIOCATORI_FIELDS.index("squadra")
-            self.g_proxy_model.set_filter_columns(nome_idx, squadra_idx)
+            nome_idx         = GIOCATORI_FIELDS.index("nome")
+            squadra_idx      = GIOCATORI_FIELDS.index("squadra")
+            in_prestito_idx  = GIOCATORI_FIELDS.index("in_prestito_a")
+            self.g_proxy_model.set_filter_columns(nome_idx, squadra_idx, in_prestito_idx)
         except ValueError:
             pass
 
@@ -139,11 +151,40 @@ class MainWindow(QMainWindow):
         self.g_search_bar.textChanged.connect(self.g_proxy_model.set_search_text)
         self.g_squadra_combo.currentTextChanged.connect(self.g_proxy_model.set_squadra_filter)
 
+        # ── Bulk convocato bar ──────────────────────────────────────────────
+        self.convocato_bar = QWidget()
+        convocato_layout = QHBoxLayout(self.convocato_bar)
+        convocato_layout.setContentsMargins(10, 4, 10, 4)
+        convocato_layout.setSpacing(8)
+
+        from PySide6.QtWidgets import QLabel as _QL
+        convocato_layout.addWidget(_QL("Imposta convocato per tutti i giocatori visualizzati:"))
+
+        self.btn_convocato_si = QPushButton("✅  Tutti Convocati")
+        self.btn_convocato_si.setStyleSheet(
+            "QPushButton { background-color: #28a745; color: white; padding: 4px 12px; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #218838; }"
+        )
+        self.btn_convocato_si.clicked.connect(lambda: self._set_convocato_bulk(True))
+        convocato_layout.addWidget(self.btn_convocato_si)
+
+        self.btn_convocato_no = QPushButton("❌  Tutti Non Convocati")
+        self.btn_convocato_no.setStyleSheet(
+            "QPushButton { background-color: #dc3545; color: white; padding: 4px 12px; border-radius: 3px; }"
+            "QPushButton:hover { background-color: #c82333; }"
+        )
+        self.btn_convocato_no.clicked.connect(lambda: self._set_convocato_bulk(False))
+        convocato_layout.addWidget(self.btn_convocato_no)
+
+        convocato_layout.addStretch()
+        # ────────────────────────────────────────────────────────────────────
+
         g_main_widget = QWidget()
         g_main_layout = QVBoxLayout(g_main_widget)
         g_main_layout.setContentsMargins(0, 0, 0, 0)
         g_main_layout.addWidget(self.quotazioni_bar)
         g_main_layout.addLayout(filter_layout)
+        g_main_layout.addWidget(self.convocato_bar)
         g_main_layout.addWidget(g_table_widget)
 
         self.g_deleted_widget = DeletedItemsWidget(g_repo, GIOCATORI_FIELDS, GIOCATORI_HEADERS)
@@ -492,6 +533,69 @@ class MainWindow(QMainWindow):
         session.commit()
         base_model.refresh() #type: ignore
         QMessageBox.information(self, "Successo", "Serie A Update completato con successo!")
+
+
+    def _set_convocato_bulk(self, value: bool):
+        """Set convocato=value for every visible giocatore.
+        Blocked when editing is locked; requires confirmation.
+        """
+        source_model = self.g_model
+
+        # Guard: editing must be unlocked
+        if source_model.editing_locked:
+            QMessageBox.warning(
+                self, "Modifiche bloccate",
+                "Sblocca le modifiche prima di cambiare lo stato di convocazione."
+            )
+            return
+
+        proxy = self.g_proxy_model
+        session = source_model.repo.session
+
+        # Collect rows that will actually change
+        affected_objs = []
+        for proxy_row in range(1, proxy.rowCount()):
+            source_index = proxy.mapToSource(proxy.index(proxy_row, 0))
+            source_row = source_index.row()
+            if source_row < 1:
+                continue
+            obj = source_model.rows[source_row - 1]
+            if obj.convocato != value:
+                affected_objs.append(obj)
+
+        if not affected_objs:
+            QMessageBox.information(
+                self, "Nessuna modifica",
+                "Tutti i giocatori visualizzati hanno gia il valore selezionato."
+            )
+            return
+
+        # Confirmation
+        label = "Si" if value else "No"
+        n = len(affected_objs)
+        reply = QMessageBox.question(
+            self, "Conferma modifica convocato",
+            "Imposta Convocato = " + label + " per " + str(n) + " giocatori?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Apply and commit
+        for obj in affected_objs:
+            obj.convocato = value
+
+        try:
+            session.commit()
+            source_model.refresh()
+            QMessageBox.information(
+                self, "Successo",
+                "Convocato impostato a " + label + " per " + str(n) + " giocatori."
+            )
+        except Exception as e:
+            session.rollback()
+            QMessageBox.critical(self, "Errore", str(e))
 
     def get_giocatori_base_model(self):
         model = self.g_view.model()
