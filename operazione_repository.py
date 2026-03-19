@@ -153,7 +153,11 @@ class OperazioneRepository:
         """
         for s in (sessions_to_expire or []):
             try:
-                s.expire_all()
+                # Accept both Repository objects and raw sessions
+                session = s.session if hasattr(s, "session") else s
+                session.close()
+                if hasattr(s, "session_factory"):
+                    s.session = s.session_factory()
             except Exception:
                 pass
 
@@ -220,7 +224,11 @@ class OperazioneRepository:
         """
         for s in (sessions_to_expire or []):
             try:
-                s.expire_all()
+                # Accept both Repository objects and raw sessions
+                session = s.session if hasattr(s, "session") else s
+                session.close()
+                if hasattr(s, "session_factory"):
+                    s.session = s.session_factory()
             except Exception:
                 pass
 
@@ -297,7 +305,11 @@ class OperazioneRepository:
         """
         for s in (sessions_to_expire or []):
             try:
-                s.expire_all()
+                # Accept both Repository objects and raw sessions
+                session = s.session if hasattr(s, "session") else s
+                session.close()
+                if hasattr(s, "session_factory"):
+                    s.session = s.session_factory()
             except Exception:
                 pass
 
@@ -377,7 +389,11 @@ class OperazioneRepository:
 
         for s in (sessions_to_expire or []):
             try:
-                s.expire_all()
+                # Accept both Repository objects and raw sessions
+                session = s.session if hasattr(s, "session") else s
+                session.close()
+                if hasattr(s, "session_factory"):
+                    s.session = s.session_factory()
             except Exception:
                 pass
 
@@ -500,7 +516,11 @@ class OperazioneRepository:
 
         for s in (sessions_to_expire or []):
             try:
-                s.expire_all()
+                # Accept both Repository objects and raw sessions
+                session = s.session if hasattr(s, "session") else s
+                session.close()
+                if hasattr(s, "session_factory"):
+                    s.session = s.session_factory()
             except Exception:
                 pass
 
@@ -619,7 +639,11 @@ class OperazioneRepository:
 
         for s in (sessions_to_expire or []):
             try:
-                s.expire_all()
+                # Accept both Repository objects and raw sessions
+                session = s.session if hasattr(s, "session") else s
+                session.close()
+                if hasattr(s, "session_factory"):
+                    s.session = s.session_factory()
             except Exception:
                 pass
 
@@ -717,7 +741,7 @@ class OperazioneRepository:
         fm: int,
         data_acquisto: datetime.date,
         clausole: Optional[str] = None,
-        sessions_to_expire: Optional[List] = None,   # pass other open sessions
+        sessions_to_expire: Optional[List] = None,   # pass Repository objects to release
     ) -> Operazione:
         """
         Execute a 'acquisto definitivo' atomically inside a single fresh session:
@@ -730,11 +754,15 @@ class OperazioneRepository:
 
         # ── Release any open read transactions in sibling sessions ───────
         # SQLite blocks writers when other connections hold read transactions.
-        # Calling expire_all() forces SQLAlchemy to end those implicit reads
-        # without closing the sessions themselves.
+        # Closing sibling sessions releases any open read transactions
+        # (SQLite WAL: readers don't block writers, but pending flushes can).
         for s in (sessions_to_expire or []):
             try:
-                s.expire_all()
+                # Accept both Repository objects and raw sessions
+                session = s.session if hasattr(s, "session") else s
+                session.close()
+                if hasattr(s, "session_factory"):
+                    s.session = s.session_factory()
             except Exception:
                 pass
 

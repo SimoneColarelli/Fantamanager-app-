@@ -146,13 +146,32 @@ class DataManager:
 
 class DataManagerUI:
 
-    def __init__(self, parent_window, refresh_callback=None):
+    def __init__(self, parent_window, refresh_callback=None, repos=None):
         """
         parent_window: The main window
         refresh_callback: Optional callback function to refresh all data after import
+        repos: list of Repository / OperazioneRepository instances whose sessions
+               must be closed before import to release SQLite locks
         """
         self.parent = parent_window
         self.refresh_callback = refresh_callback
+        self.repos = repos or []
+
+    def _release_sessions(self):
+        """Close all repo sessions to release SQLite file locks before import."""
+        for repo in self.repos:
+            try:
+                repo.session.close()
+            except Exception:
+                pass
+
+    def _reopen_sessions(self):
+        """Open fresh sessions on all repos after import."""
+        for repo in self.repos:
+            try:
+                repo.session = repo.session_factory()
+            except Exception:
+                pass
 
     def export_all(self):
         filename, _ = QFileDialog.getSaveFileName(
@@ -175,7 +194,9 @@ class DataManagerUI:
             self.parent, "Import All Data", QDir.homePath(), "JSON Files (*.json)"
         )
         if filename:
+            self._release_sessions()
             success, msg = DataManager.import_data(filename)
+            self._reopen_sessions()
             self._show_result(success, msg)
             
             # If import was successful and we have a refresh callback, call it
@@ -210,7 +231,9 @@ class DataManagerUI:
                     self.parent, f"Import {item}", QDir.homePath(), "JSON Files (*.json)"
                 )
                 if filename:
+                    self._release_sessions()
                     success, msg = DataManager.import_data(filename, specific_table=selected_model)
+                    self._reopen_sessions()
                     self._show_result(success, msg)
                     
                     # If import was successful and we have a refresh callback, call it

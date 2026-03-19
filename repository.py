@@ -13,11 +13,37 @@ class Repository:
         """Return a new session to bypass SQLAlchemy's identity map cache."""
         return self.session_factory()
 
+    def _ensure_usable(self):
+        """
+        If the persistent session has a pending rollback or is otherwise
+        broken, reset it so it can be reused safely.
+        """
+        from sqlalchemy.exc import PendingRollbackError, InvalidRequestError
+        try:
+            # Check session state via SQLAlchemy internals
+            if self.session.is_active is False or getattr(
+                self.session.transaction, "nested", None
+            ) is not None:
+                raise InvalidRequestError("session not clean")
+        except Exception:
+            pass
+        # Always do a defensive rollback+close and reopen to guarantee clean state
+        try:
+            self.session.rollback()
+        except Exception:
+            pass
+        try:
+            self.session.close()
+        except Exception:
+            pass
+        self.session = self.session_factory()
+
     def all(self):
         """
         Load all active records and merge them into the write session so that
         any later setattr + session.commit() actually persists to the DB.
         """
+        self._ensure_usable()
         fresh = self._fresh_session()
         try:
             results = fresh.query(self.model).filter_by(deleted=False).all()

@@ -1,3 +1,5 @@
+from typing import cast
+
 import openpyxl
 from sqlalchemy import func
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QSplitter, QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, QComboBox, QFileDialog, QPushButton, QLabel, QMessageBox
@@ -15,6 +17,33 @@ from table_with_edit_buttons import TableWithEditButtons
 from data_manager import DataManagerUI
 from operazione_repository import OperazioneRepository
 from mercato_widget import MercatoWidget
+from undo_manager import UndoManager
+
+
+def _resolve_nome(fantasquadra) -> str:
+    """
+    Safely read fantasquadra.nome without touching a potentially broken session.
+    Uses SQLAlchemy's instance state to read the value from the identity map
+    (already loaded dict) before falling back to a fresh DB query by PK.
+    """
+    from sqlalchemy import inspect as sa_inspect
+    try:
+        state = sa_inspect(fantasquadra)
+        # If 'nome' is already in the loaded dict, return it directly
+        if 'nome' in state.dict:
+            return state.dict['nome']
+        # Otherwise query fresh by primary key
+        fq_id = state.identity[0] if state.identity else None
+        if fq_id is not None:
+            session = SessionLocal()
+            try:
+                fq = session.query(Fantasquadra).filter_by(id=fq_id).one_or_none()
+                return cast(str, fq.nome if fq else "")
+            finally:
+                session.close()
+    except Exception:
+        pass
+    return ""
 
 
 def _count_in_rosa(fantasquadra):
@@ -23,19 +52,19 @@ def _count_in_rosa(fantasquadra):
       - OR on loan TO this team from another team
     """
     from sqlalchemy import or_
+    nome = _resolve_nome(fantasquadra)
+    if not nome:
+        return 0
     session = SessionLocal()
     try:
-        nome = fantasquadra.nome
         return session.query(func.count(Giocatore.id)).filter(
-            Giocatore.deleted == False,
             Giocatore.in_serie_a == True,
+            Giocatore.deleted == False,
             or_(
-                # owns the player and hasn't loaned them out
                 (Giocatore.squadra == nome) & (
                     (Giocatore.in_prestito_a == None) |
                     (Giocatore.in_prestito_a == "")
                 ),
-                # player is on loan TO this team
                 Giocatore.in_prestito_a == nome,
             )
         ).scalar() or 0
@@ -46,9 +75,11 @@ def _count_in_rosa(fantasquadra):
 def _count_convocati(fantasquadra):
     """Count convocated players effectively in this team's rosa (same logic as in_rosa)."""
     from sqlalchemy import or_
+    nome = _resolve_nome(fantasquadra)
+    if not nome:
+        return 0
     session = SessionLocal()
     try:
-        nome = fantasquadra.nome
         return session.query(func.count(Giocatore.id)).filter(
             Giocatore.deleted == False,
             Giocatore.convocato == True,
@@ -245,7 +276,7 @@ class MainWindow(QMainWindow):
 
         # Give mercato_widget access to the persistent repo sessions so it can
         # expire them (release SQLite read locks) before each write operation.
-        self.mercato_widget.sibling_sessions = [g_repo.session, f_repo.session]
+        self.mercato_widget.sibling_repos = [g_repo, f_repo]
 
         # ========== ADD TABS ==========
         self.tabs.addTab(g_splitter, "Giocatori")
@@ -254,7 +285,27 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self.tabs)
 
-        self.data_manager_ui = DataManagerUI(self, refresh_callback=self.refresh_all_data)
+        self.data_manager_ui = DataManagerUI(
+            self,
+            refresh_callback=self.refresh_all_data,
+            repos=[g_repo, f_repo, self.op_repo],
+        )
+
+        # ── Undo manager ─────────────────────────────────────────────────────
+        self._undo_mgr = UndoManager(
+            db_path="fantamanager.db",
+            engine=engine,
+            max_snapshots=5,
+        )
+        # Register every repository so their sessions are closed and
+        # replaced with fresh ones after each undo restore
+        self._undo_mgr._repos = [g_repo, f_repo, self.op_repo]
+        self._undo_mgr.register_refresh_callback(self.refresh_all_data)
+        # Dedicated callback: enable the undo action after every commit
+        self._undo_mgr.register_snapshot_callback(self._update_undo_action)
+        self._undo_mgr.start()
+        # ─────────────────────────────────────────────────────────────────────
+
         self.setup_menu()
 
     def refresh_all_data(self):
@@ -265,12 +316,27 @@ class MainWindow(QMainWindow):
         self.update_squadra_combo()
         self.mercato_widget.refresh_combos()
         self.mercato_widget._refresh_history()
+        # Keep undo action in sync
+        if hasattr(self, "_undo_mgr"):
+            self._update_undo_action()
 
     def setup_menu(self):
         menubar = self.menuBar()
 
         data_menu = menubar.addMenu("Data")
         update_menu = menubar.addMenu("Updates")
+
+        # ── Undo menu ────────────────────────────────────────────────────────
+        undo_menu = menubar.addMenu("Modifica")
+        self._undo_action = QAction("↩  Annulla ultima operazione", self)
+        self._undo_action.setShortcut("Ctrl+Z")
+        from PySide6.QtGui import QKeySequence
+        from PySide6.QtCore import Qt as _Qt
+        self._undo_action.setShortcutContext(_Qt.ShortcutContext.ApplicationShortcut)
+        self._undo_action.setEnabled(False)
+        self._undo_action.triggered.connect(self._perform_undo)
+        undo_menu.addAction(self._undo_action)
+        # ─────────────────────────────────────────────────────────────────────
 
         export_menu = data_menu.addMenu("Export")
 
@@ -596,6 +662,47 @@ class MainWindow(QMainWindow):
         except Exception as e:
             session.rollback()
             QMessageBox.critical(self, "Errore", str(e))
+
+
+    def _update_undo_action(self):
+        """Enable/disable and relabel the undo menu item after each commit."""
+        if not hasattr(self, "_undo_action"):
+            return
+        n = self._undo_mgr.undo_count()
+        self._undo_action.setEnabled(n > 0)
+        if n > 0:
+            self._undo_action.setText("Annulla ultima operazione  [" + str(n) + " disponibili]")
+        else:
+            self._undo_action.setText("Annulla ultima operazione")
+
+    def _perform_undo(self):
+        """Undo the last DB commit by restoring the previous snapshot."""
+        if not self._undo_mgr.can_undo():
+            QMessageBox.information(self, "Annulla", "Nessuna operazione da annullare.")
+            return
+
+        n_before = self._undo_mgr.undo_count()
+        reply = QMessageBox.question(
+            self, "Conferma Annulla",
+            "Annullare l'ultima operazione?\n"
+            "Il database verra ripristinato allo stato precedente.\n"
+            "Passi disponibili: " + str(n_before),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self._undo_mgr.undo()
+            self._update_undo_action()
+            n = self._undo_mgr.undo_count()
+            QMessageBox.information(
+                self, "Annullato",
+                "Operazione annullata. Passi undo rimanenti: " + str(n) + "."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Errore Undo", "Impossibile annullare:\n" + str(e))
 
     def get_giocatori_base_model(self):
         model = self.g_view.model()

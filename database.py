@@ -26,7 +26,7 @@ def _set_wal_mode(dbapi_connection, connection_record):
 
 
 # ── Session factory ───────────────────────────────────────────────────────────
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=True)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
 # ── Declarative base ──────────────────────────────────────────────────────────
 Base = declarative_base()

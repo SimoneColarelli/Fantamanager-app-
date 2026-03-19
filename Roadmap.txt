@@ -6,9 +6,14 @@ Next features:
 
 - Test calculation features
 
-- Repair the refresh function, it does not work
+- Repair the refresh function, it does not work DONE
 
-- Mercato:
+- Mercato: DONE
 	- definition of a new model: operazione di mercato
 	- connection between an operazione di mercato and giocatori and fantasquadre tables
-	
+
+- Undo feature for all db commit
+- Add sum of rosa value and patrimonio columns read-only (not in db)
+- free editable fields option
+- Add for each cessione definitiva the possibility of adding a one more year of contract by paying 35% of the calculated value if the date is on months of august or september, by paying 30% if the date is on January or February.
+- fix scambio prestiti operation card ui

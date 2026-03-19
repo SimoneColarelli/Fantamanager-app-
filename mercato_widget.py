@@ -755,7 +755,7 @@ class AstaPlayerRow(QFrame):
         row.addWidget(self.quot_spin)
 
         # FM paid
-        fm_lbl = QLabel("FM: ")
+        fm_lbl = QLabel("FM:")
         fm_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; background: transparent;")
         fm_lbl.setFixedWidth(22)
         row.addWidget(fm_lbl)
@@ -1119,7 +1119,7 @@ class OperazioneCard(QFrame):
 
             row_lbl = QLabel(
                 f"<span style='font-size:10pt; font-weight:bold; color:#1a1a1a;'>{nome}</span>"
-                f"  <span style='font-size:9pt; color:{MUTED};'>Q: {quot}  -  {vs} FM</span>"
+                f"  <span style='font-size:9pt; color:{MUTED};'>Q:{quot}  •  {vs} FM</span>"
             )
             row_lbl.setTextFormat(Qt.TextFormat.RichText)
             row_lbl.setStyleSheet("background: transparent;")
@@ -1153,7 +1153,8 @@ class MercatoWidget(QWidget):
         self.repo = repo
         # MainWindow populates this with persistent repo sessions so
         # calcola_acquisto can expire them before writing (releases SQLite read locks)
-        self.sibling_sessions: list = []
+        self.sibling_sessions: list = []  # kept for legacy compat
+        self.sibling_repos: list = []  # repos to close/reopen around writes
         self._asta_rows: list = []  # AstaPlayerRow list
         self._build_ui()
         self.refresh_combos()
@@ -1431,7 +1432,7 @@ class MercatoWidget(QWidget):
             self.repo.importa_asta(
                 asta_data=asta_data,
                 data_asta=data_asta,
-                sessions_to_expire=self.sibling_sessions,
+                sessions_to_expire=self.sibling_repos,
             )
         except Exception as e:
             QMessageBox.critical(self, "Errore", f"Impossibile importare l'asta:\n{e}"); return
@@ -1948,7 +1949,7 @@ class MercatoWidget(QWidget):
                 fm=fm,
                 data_acquisto=data,
                 clausole=clausole,
-                sessions_to_expire=self.sibling_sessions,
+                sessions_to_expire=self.sibling_repos,
             )
         except Exception as e:
             QMessageBox.critical(self, "Errore", f"Impossibile eseguire l'acquisto:\n{e}")
@@ -2097,7 +2098,7 @@ class MercatoWidget(QWidget):
                 fm=fm,
                 data_acquisto=data,
                 clausole=clausole,
-                sessions_to_expire=self.sibling_sessions,
+                sessions_to_expire=self.sibling_repos,
             )
         except Exception as e:
             QMessageBox.critical(self, "Errore", f"Impossibile eseguire lo scambio:\n{e}")
@@ -2214,7 +2215,7 @@ class MercatoWidget(QWidget):
                 fm=fm,
                 inizio_prestito=data,
                 clausole=clausole,
-                sessions_to_expire=self.sibling_sessions,
+                sessions_to_expire=self.sibling_repos,
             )
         except Exception as e:
             QMessageBox.critical(self, "Errore", f"Impossibile registrare il prestito:\n{e}")
@@ -2327,7 +2328,7 @@ class MercatoWidget(QWidget):
                 fm=fm,
                 inizio_prestito=data,
                 clausole=clausole,
-                sessions_to_expire=self.sibling_sessions,
+                sessions_to_expire=self.sibling_repos,
             )
         except Exception as e:
             QMessageBox.critical(self, "Errore", f"Impossibile registrare lo scambio prestiti:\n{e}")
@@ -2397,7 +2398,7 @@ class MercatoWidget(QWidget):
                 fq_id=fq_id,
                 data=data,
                 clausole=clausole,
-                sessions_to_expire=self.sibling_sessions,
+                sessions_to_expire=self.sibling_repos,
             )
         except Exception as e:
             QMessageBox.critical(self, "Errore", f"Impossibile eseguire lo svincolo:\n{e}")
@@ -2471,7 +2472,7 @@ class MercatoWidget(QWidget):
                 fq_id=fq_id,
                 giocatori_data=giocatori_data,
                 data_asta=data_asta,
-                sessions_to_expire=self.sibling_sessions,
+                sessions_to_expire=self.sibling_repos,
             )
         except Exception as e:
             QMessageBox.critical(self, "Errore", f"Impossibile registrare l'asta:\n{e}"); return
