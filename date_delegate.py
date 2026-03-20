@@ -28,6 +28,7 @@ class DataAcquistoDelegate(QStyledItemDelegate):
         value = from_str_to_trunc_date(index.data(Qt.ItemDataRole.EditRole) or index.data(Qt.ItemDataRole.DisplayRole))
         
         editor = QComboBox(parent)
+        editor.setEditable(True)
         choices = [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}", value] if value and value != "" else [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}"]
         
         for choice in choices:
@@ -79,6 +80,7 @@ class ScadenzaContrattoDelegate(QStyledItemDelegate):
         data_acquisto = self.model.data(data_acquisto_index, Qt.ItemDataRole.DisplayRole)
         
         editor = QComboBox(parent)
+        editor.setEditable(True)
         
         # Determine choices based on Data acquisto
 
@@ -129,6 +131,7 @@ class InizioPrestitoDelegate(QStyledItemDelegate):
 
         
         editor = QComboBox(parent)
+        editor.setEditable(True)
         choices = [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}", value, ""] if value and value != "" and value != "nuovo inizio prestito" else [f"ago-{cy}", f"set-{cy}", f"gen-{cy}", f"feb-{cy}", ""]
         
         for choice in choices:
@@ -185,6 +188,7 @@ class FinePrestitoDelegate(QStyledItemDelegate):
         inizio_prestito = from_str_to_trunc_date(inizio_prestito)
         
         editor = QComboBox(parent)
+        editor.setEditable(True)
         
         # Choices: gen-(cy+1), lug-(cy+1), lug-(cy+2), lug-cy, cm-(cy+1), cm-(cy+2)
         choices = [

@@ -8,6 +8,7 @@ class BooleanDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         """Create a QComboBox for editing boolean values"""
         editor = QComboBox(parent)
+        editor.setEditable(True)
         editor.addItem("Sì")
         editor.addItem("No")
         return editor

@@ -8,6 +8,7 @@ class FasciaDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         """Create a QComboBox for editing int values of fascia column"""
         editor = QComboBox(parent)
+        editor.setEditable(True)
         editor.addItem("1")
         editor.addItem("2")
         editor.addItem("3")
