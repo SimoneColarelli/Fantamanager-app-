@@ -56,6 +56,17 @@ class DataManager:
                 records = session.query(model).all()
                 export_dict[table_name] = [DataManager.model_to_dict(r) for r in records]
 
+            # Export the operazione_giocatori association table separately
+            # (it is a plain Table, not an ORM class, so it is invisible to get_all_models)
+            try:
+                from sqlalchemy import text as _text
+                rows = session.execute(_text("SELECT operazione_id, giocatore_id FROM operazione_giocatori")).fetchall()
+                export_dict["operazione_giocatori"] = [
+                    {"operazione_id": r[0], "giocatore_id": r[1]} for r in rows
+                ]
+            except Exception:
+                pass
+
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(export_dict, f, indent=4, ensure_ascii=False)
             
@@ -130,7 +141,20 @@ class DataManager:
                     session.add(obj)
 
             session.commit()
-            
+
+            # Import operazione_giocatori association rows if present
+            if "operazione_giocatori" in data and specific_table is None:
+                try:
+                    session.execute(text("DELETE FROM operazione_giocatori"))
+                    for row in data["operazione_giocatori"]:
+                        session.execute(
+                            text("INSERT INTO operazione_giocatori (operazione_id, giocatore_id) VALUES (:op_id, :g_id)"),
+                            {"op_id": row["operazione_id"], "g_id": row["giocatore_id"]}
+                        )
+                    session.commit()
+                except Exception:
+                    session.rollback()
+
             # Re-enable foreign keys
             if 'sqlite' in session.bind.dialect.name: #type: ignore
                 session.execute(text("PRAGMA foreign_keys=ON"))
