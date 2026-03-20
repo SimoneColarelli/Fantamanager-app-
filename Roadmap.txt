@@ -12,8 +12,11 @@ Next features:
 	- definition of a new model: operazione di mercato
 	- connection between an operazione di mercato and giocatori and fantasquadre tables
 
-- Undo feature for all db commit
+- Undo feature for all db commit DONE
 - Add sum of rosa value and patrimonio columns read-only (not in db)
 - free editable fields option
 - Add for each cessione definitiva the possibility of adding a one more year of contract by paying 35% of the calculated value if the date is on months of august or september, by paying 30% if the date is on January or February.
 - fix scambio prestiti operation card ui
+
+In client app:
+- fix simulatore behaviour: when calculating a cessione without contropartite (Team B pays Nfm for players of Team A), throw a warning if the amount of FM is less then the sum of valore svincolo of players
