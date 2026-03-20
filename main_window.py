@@ -38,7 +38,7 @@ def _resolve_nome(fantasquadra) -> str:
             session = SessionLocal()
             try:
                 fq = session.query(Fantasquadra).filter_by(id=fq_id).one_or_none()
-                return cast(str, fq.nome if fq else "")
+                return cast(str, fq.nome) if fq else ""
             finally:
                 session.close()
     except Exception:
@@ -92,6 +92,42 @@ def _count_convocati(fantasquadra):
                 Giocatore.in_prestito_a == nome,
             )
         ).scalar() or 0
+    finally:
+        session.close()
+
+
+
+def _valore_rosa(fantasquadra):
+    """Sum of valore_svincolo of all players registered to this team (squadra == nome),
+    regardless of loan status."""
+    nome = _resolve_nome(fantasquadra)
+    if not nome:
+        return 0
+    session = SessionLocal()
+    try:
+        result = session.query(func.sum(Giocatore.valore_svincolo)).filter(
+            Giocatore.squadra == nome,
+            Giocatore.deleted == False,
+        ).scalar()
+        return int(result or 0)
+    finally:
+        session.close()
+
+
+def _patrimonio(fantasquadra):
+    """fm balance + valore_rosa."""
+    nome = _resolve_nome(fantasquadra)
+    if not nome:
+        return 0
+    session = SessionLocal()
+    try:
+        fq = session.query(Fantasquadra).filter_by(nome=nome, deleted=False).one_or_none()
+        fm = cast(int, fq.fm if fq else 0)
+        valore = session.query(func.sum(Giocatore.valore_svincolo)).filter(
+            Giocatore.squadra == nome,
+            Giocatore.deleted == False,
+        ).scalar()
+        return int(fm + (valore or 0))
     finally:
         session.close()
 
@@ -234,7 +270,12 @@ class MainWindow(QMainWindow):
         f_repo = Repository(SessionLocal, Fantasquadra, FANTASQUADRE_FIELDS)
         self.f_model = EditableTableModel(
             f_repo, FANTASQUADRE_FIELDS, FANTASQUADRE_HEADERS,
-            computed_fields={"in_rosa": _count_in_rosa, "convocati": _count_convocati}
+            computed_fields={
+            "in_rosa":     _count_in_rosa,
+            "convocati":   _count_convocati,
+            "valore_rosa": _valore_rosa,
+            "patrimonio":  _patrimonio,
+        }
         )
 
         self.f_view = EditableTableView()
@@ -242,7 +283,7 @@ class MainWindow(QMainWindow):
 
         f_table_widget = TableWithEditButtons(self.f_view)
 
-        f_computed = {"in_rosa", "convocati"}
+        f_computed = {"in_rosa", "convocati", "valore_rosa", "patrimonio"}
         f_real_fields = [f for f in FANTASQUADRE_FIELDS if f not in f_computed]
         f_real_headers = [h for f, h in zip(FANTASQUADRE_FIELDS, FANTASQUADRE_HEADERS) if f not in f_computed]
         self.f_deleted_widget = DeletedItemsWidget(f_repo, f_real_fields, f_real_headers)

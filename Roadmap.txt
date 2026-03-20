@@ -4,7 +4,7 @@ Next features:
 	- Only quotazione update
 	- Only in serie a update
 
-- Test calculation features
+- Test calculation features DONE
 
 - Repair the refresh function, it does not work DONE
 
@@ -13,10 +13,14 @@ Next features:
 	- connection between an operazione di mercato and giocatori and fantasquadre tables
 
 - Undo feature for all db commit DONE
-- Add sum of rosa value and patrimonio columns read-only (not in db)
-- free editable fields option
+- Add sum of rosa value and patrimonio columns read-only (not in db) DONE
+- free editable fields option DONE
 - Add for each cessione definitiva the possibility of adding a one more year of contract by paying 35% of the calculated value if the date is on months of august or september, by paying 30% if the date is on January or February.
 - fix scambio prestiti operation card ui
 
 In client app:
-- fix simulatore behaviour: when calculating a cessione without contropartite (Team B pays Nfm for players of Team A), throw a warning if the amount of FM is less then the sum of valore svincolo of players
+- fix simulatore behaviour: when calculating a cessione without contropartite (Team B pays N fm for players of Team A), throw a warning if the amount of FM is less then the sum of valore svincolo of players
+
+Perfect. Now i would like to implement a new operation: "Aumento contratto". It works as following: it has to display only a fantasquadra selector and the button to select players. When selected, the function triggered when pressing on "registra" is: the fantasquadra pays the 35% of valore svincolo of each player if the month of "data_acquisto" of correspondant player is august or september or the 30% if the month is january or february, and the year of "scadenza_contratto" of each player increases by one if we are in the case of 35%, by 2 if in the 30% case. Of course the function has to be allowed only if fm amount of the fantasquadra is enough to do that. 
+In storico operazioni section, this type of operation has to be displayed with a card like "svincolo" or "asta", that is without double arrows indicating an Exchange, and players in player rows displaying the name of player, the amount paid for the increased contratto and the new date of scadenza contratto. Under players row, the sum of paid amounts.
+Ince defined this operation, we need to add in all operation "acquisto definitivo", "scambio definitivo" and "asta" the possibility to flag the option to extend contratto by one year by paying the 
