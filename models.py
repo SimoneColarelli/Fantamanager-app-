@@ -59,6 +59,7 @@ TIPI_OPERAZIONE = [
     "scambio prestiti",
     "svincolo",
     "asta",
+    "aumento contratto",
 ]
 
 

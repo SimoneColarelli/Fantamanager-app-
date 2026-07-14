@@ -621,8 +621,8 @@ class OperazioneRepository:
         self,
         fq_id: int,
         giocatori_data: List[dict],
-        # [{"nome": str, "quotazione": int, "spesa": int}, ...]
-        data_asta: datetime.date,
+        # [{"nome": str, "quotazione": int, "spesa": int, "estendi": bool}, ...]
+        data_asta: datetime.date = None,
         sessions_to_expire: Optional[List] = None,
     ) -> "Operazione":
         """
@@ -633,7 +633,9 @@ class OperazioneRepository:
           - spesa = valore_svincolo = amount paid at auction.
           - scadenza_contratto computed from data_acquisto.
           - Deducts total spesa from fq.fm.
-        Records one 'asta' Operazione linking all created players.
+          - Optionally applies aumento contratto to rows marked with estendi=True.
+        Records one 'asta' Operazione linking all created players and, when
+        requested, one 'aumento contratto' Operazione for the extensions.
         """
         from constants import calculate_fascia
 
@@ -660,6 +662,7 @@ class OperazioneRepository:
 
             new_giocatori: List[Giocatore] = []
             total_fm = 0
+            estendi_giocatori: List[Giocatore] = []
 
             for row in giocatori_data:
                 spesa = float(row["spesa"])
@@ -684,12 +687,34 @@ class OperazioneRepository:
                 session.add(g)
                 new_giocatori.append(g)
                 total_fm += int(spesa)
+                if row.get("estendi"):
+                    estendi_giocatori.append(g)
 
             # Flush to get PKs before linking to Operazione
             session.flush()
 
+            aumento_total = 0
+            aumento_snapshot = []
+            for g in estendi_giocatori:
+                costo, anni_extra, nuova_scadenza = self.calcola_costo_aumento(g)
+                aumento_total += costo
+                aumento_snapshot.append({
+                    "nome":           g.nome,
+                    "costo":          costo,
+                    "nuova_scadenza": nuova_scadenza.isoformat(),
+                    "anni_extra":     anni_extra,
+                })
+                g.scadenza_contratto = nuova_scadenza
+
+            if estendi_giocatori and fq.fm - total_fm < aumento_total:
+                raise ValueError(
+                    fq.nome + " non ha abbastanza FM per l'aumento contratto "
+                    "dopo l'asta (servono " + str(aumento_total) +
+                    " FM, disponibili dopo asta " + str(fq.fm - total_fm) + " FM)."
+                )
+
             # Deduct FM from fantasquadra
-            fq.fm -= total_fm
+            fq.fm -= total_fm + aumento_total
 
             op = Operazione(
                 fantasquadra_a_id = fq_id,
@@ -702,8 +727,137 @@ class OperazioneRepository:
             )
             op.giocatori = new_giocatori
             session.add(op)
+
+            if estendi_giocatori:
+                aumento_op = Operazione(
+                    fantasquadra_a_id  = fq_id,
+                    fantasquadra_b_id  = None,
+                    tipo_operazione    = "aumento contratto",
+                    conguaglio         = aumento_total,
+                    conguaglio_da_id   = fq_id,
+                    data               = data_norm,
+                    clausole           = "Aumento contratto contestuale ad asta",
+                    giocatori_snapshot = json.dumps(aumento_snapshot),
+                )
+                aumento_op.giocatori = estendi_giocatori
+                session.add(aumento_op)
             session.commit()
 
+            session.expunge(op)
+            return op
+
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    # ------------------------------------------------------------------ #
+    #  BUSINESS LOGIC — AUMENTO CONTRATTO                                  #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def calcola_costo_aumento(giocatore) -> tuple:
+        """
+        Return (costo: int, anni_extra: int, nuova_scadenza: date) for a player.
+
+        Rules based on data_acquisto month:
+          jan / feb -> 30% of valore_svincolo, scadenza + 1 year
+          aug / sep -> 35% of valore_svincolo, scadenza + 2 years
+          all other months are not eligible for aumento contratto
+        """
+        vs    = float(giocatore.valore_svincolo or 0)
+        month = giocatore.data_acquisto.month if giocatore.data_acquisto else 0
+
+        if month in (1, 2):
+            pct = 0.30
+            anni_extra = 1
+        elif month in (8, 9):
+            pct = 0.35
+            anni_extra = 2
+        else:
+            raise ValueError(
+                "Aumento contratto consentito solo per giocatori acquistati "
+                "a gennaio/febbraio o agosto/settembre."
+            )
+
+        costo = round(vs * pct)
+
+        scad = giocatore.scadenza_contratto
+        if scad:
+            nuova_scadenza = scad.replace(year=scad.year + anni_extra)
+        else:
+            nuova_scadenza = datetime.date.today().replace(
+                year=datetime.date.today().year + anni_extra, month=7, day=1
+            )
+
+        return costo, anni_extra, nuova_scadenza
+
+    def calcola_aumento_contratto(
+        self,
+        fq_id: int,
+        giocatore_ids: List[int],
+        sessions_to_expire: Optional[List] = None,
+    ) -> Operazione:
+        """
+        Execute an 'aumento contratto':
+          - Compute cost per player (30% for Jan/Feb, 35% for Aug/Sep).
+          - Raise ValueError if fq.fm < total cost.
+          - Extend scadenza_contratto by 1 year for Jan/Feb, 2 years for Aug/Sep.
+          - Deduct total cost from fq.fm.
+          - Record one Operazione with per-player JSON snapshot.
+        """
+        for s in (sessions_to_expire or []):
+            try:
+                session = s.session if hasattr(s, "session") else s
+                session.close()
+                if hasattr(s, "session_factory"):
+                    s.session = s.session_factory()
+            except Exception:
+                pass
+
+        session = self.session_factory()
+        try:
+            fq = session.query(Fantasquadra).filter_by(id=fq_id).one()
+            giocatori = session.query(Giocatore).filter(
+                Giocatore.id.in_(giocatore_ids)
+            ).all()
+
+            total_costo = 0
+            snapshot_rows = []
+
+            for g in giocatori:
+                costo, anni_extra, nuova_scadenza = self.calcola_costo_aumento(g)
+                total_costo += costo
+                snapshot_rows.append({
+                    "nome":           g.nome,
+                    "costo":          costo,
+                    "nuova_scadenza": nuova_scadenza.isoformat(),
+                    "anni_extra":     anni_extra,
+                })
+                g.scadenza_contratto = nuova_scadenza
+
+            if fq.fm < total_costo:
+                raise ValueError(
+                    fq.nome + " non ha abbastanza FM per l'aumento contratto "
+                    "(servono " + str(total_costo) + " FM, disponibili " + str(fq.fm) + " FM)."
+                )
+
+            fq.fm -= total_costo
+
+            op = Operazione(
+                fantasquadra_a_id  = fq_id,
+                fantasquadra_b_id  = None,
+                tipo_operazione    = "aumento contratto",
+                conguaglio         = total_costo,
+                conguaglio_da_id   = fq_id,
+                data               = datetime.date.today().replace(day=1),
+                clausole           = "",
+                giocatori_snapshot = json.dumps(snapshot_rows),
+            )
+            op.giocatori = giocatori
+            session.add(op)
+            session.commit()
             session.expunge(op)
             return op
 

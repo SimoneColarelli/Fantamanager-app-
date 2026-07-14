@@ -18,6 +18,7 @@ from data_manager import DataManagerUI
 from operazione_repository import OperazioneRepository
 from mercato_widget import MercatoWidget
 from undo_manager import UndoManager
+from migration_runner import run_migrations
 
 
 def _resolve_nome(fantasquadra) -> str:
@@ -140,6 +141,7 @@ class MainWindow(QMainWindow):
 
         # Create all tables (including the new ones for Operazione)
         Base.metadata.create_all(engine)
+        run_migrations(engine)
 
         # === VARIABILE DI STATO DELLE QUOTAZIONI ===
         self.quotazioni_data = {}

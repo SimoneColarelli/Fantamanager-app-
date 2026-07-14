@@ -15,12 +15,18 @@ Next features:
 - Undo feature for all db commit DONE
 - Add sum of rosa value and patrimonio columns read-only (not in db) DONE
 - free editable fields option DONE
-- Add for each cessione definitiva the possibility of adding a one more year of contract by paying 35% of the calculated value if the date is on months of august or september, by paying 30% if the date is on January or February.
+- Add for each cessione definitiva the possibility of extending the contract according to the aumento contratto rule: January/February acquisitions pay 30% and extend by 1 year; August/September acquisitions pay 35% and extend by 2 years; all other acquisition months are blocked.
 - fix scambio prestiti operation card ui
+- Introduce Supabase/Postgres as the main persistent database for shared and durable data, while keeping SQLite as a local fast store for undo snapshots, quick recovery, local cache, and offline/retry support.
+- P1 architecture refactor STARTED:
+	- service layer `services/mercato_service.py`
+	- command/DTO objects
+	- UnitOfWork boundary
+	- lightweight schema migrations with `schema_migrations`
 
 In client app:
 - fix simulatore behaviour: when calculating a cessione without contropartite (Team B pays N fm for players of Team A), throw a warning if the amount of FM is less then the sum of valore svincolo of players
 
-Perfect. Now i would like to implement a new operation: "Aumento contratto". It works as following: it has to display only a fantasquadra selector and the button to select players. When selected, the function triggered when pressing on "registra" is: the fantasquadra pays the 35% of valore svincolo of each player if the month of "data_acquisto" of correspondant player is august or september or the 30% if the month is january or february, and the year of "scadenza_contratto" of each player increases by one if we are in the case of 35%, by 2 if in the 30% case. Of course the function has to be allowed only if fm amount of the fantasquadra is enough to do that. 
-In storico operazioni section, this type of operation has to be displayed with a card like "svincolo" or "asta", that is without double arrows indicating an Exchange, and players in player rows displaying the name of player, the amount paid for the increased contratto and the new date of scadenza contratto. Under players row, the sum of paid amounts.
-Ince defined this operation, we need to add in all operation "acquisto definitivo", "scambio definitivo" and "asta" the possibility to flag the option to extend contratto by one year by paying the 
+Perfect. Now i would like to implement a new operation: "Aumento contratto". It works as following: it has to display only a fantasquadra selector and the button to select players. When selected, the function triggered when pressing on "registra" is: for players bought in January or February, the fantasquadra pays 30% of valore svincolo and the year of "scadenza_contratto" increases by 1; for players bought in August or September, the fantasquadra pays 35% of valore svincolo and the year increases by 2; all other purchase months are blocked. Of course the function has to be allowed only if fm amount of the fantasquadra is enough to do that. 
+In storico operazioni section, this type of operation has to be displayed with a card like "svincolo" or "asta", that is without double arrows indicating an exchange, and player rows displaying the name of player as main info, the amount paid for the increased contratto and the new date of scadenza contratto as secondary info. Under player rows section, display the sum of paid amounts.
+Once defined this operation, we need to add in all operation "acquisto definitivo", "scambio definitivo" and "asta" the possibility to flag the option to extend contratto according to the rules previously defined. Of course, the amount to be paid for contratto increase has to be calculated from the valore svincolo calculated after the operation
