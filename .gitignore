@@ -1,1 +1,33 @@
-*.txt
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# SQLite runtime sidecars
+# Keep fantamanager.db versioned; ignore volatile WAL/SHM sidecar files.
+*.db-shm
+*.db-wal
+
+# Local backups/exports generated during development
+*.bak
+*.tmp
+*.log
+
+# Large local tooling archives
+*.vsix
+
+# Roadmaps and AI prompts
+Roadmap.md
+Roadmap.txt
+ANALISI_E_PIANO_MIGLIORIE.md
