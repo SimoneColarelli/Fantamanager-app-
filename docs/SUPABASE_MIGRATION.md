@@ -26,7 +26,7 @@ di persistenza Supabase dietro al layer service/repository.
 
 ## File introdotti
 
-- `supabase/migrations/202607140001_initial_schema.sql`
+- `supabase/migrations/20260714000100_initial_schema.sql`
   - baseline Postgres equivalente al modello SQLite attuale;
   - vincoli FK su operazioni, squadre e giocatori;
   - indici sulle colonne piu' usate per filtri e join.
@@ -50,7 +50,7 @@ di persistenza Supabase dietro al layer service/repository.
 
    Se la GitHub integration del progetto Supabase legge le migration dal repo,
    fare push della cartella `supabase/`. In alternativa aprire il file
-   `supabase/migrations/202607140001_initial_schema.sql` nel SQL editor di
+   `supabase/migrations/20260714000100_initial_schema.sql` nel SQL editor di
    Supabase ed eseguirlo una volta.
 
 3. Caricare i dati iniziali.

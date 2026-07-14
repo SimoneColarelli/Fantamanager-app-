@@ -19,7 +19,7 @@ Next features:
 - fix scambio prestiti operation card ui
 - Introduce Supabase/Postgres as the main persistent database for shared and durable data, while keeping SQLite as a local fast store for undo snapshots, quick recovery, local cache, and offline/retry support.
 - Supabase first migration PREPARED:
-	- initial Postgres schema in `supabase/migrations/202607140001_initial_schema.sql`
+	- initial Postgres schema in `supabase/migrations/20260714000100_initial_schema.sql`
 	- SQLite-to-Supabase seed exporter in `scripts/export_sqlite_to_supabase_seed.py`
 	- generated seed in `supabase/seed.sql`
 	- operational notes in `docs/SUPABASE_MIGRATION.md`
