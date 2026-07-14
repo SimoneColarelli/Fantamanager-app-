@@ -18,6 +18,11 @@ Next features:
 - Add for each cessione definitiva the possibility of extending the contract according to the aumento contratto rule: January/February acquisitions pay 30% and extend by 1 year; August/September acquisitions pay 35% and extend by 2 years; all other acquisition months are blocked.
 - fix scambio prestiti operation card ui
 - Introduce Supabase/Postgres as the main persistent database for shared and durable data, while keeping SQLite as a local fast store for undo snapshots, quick recovery, local cache, and offline/retry support.
+- Supabase first migration PREPARED:
+	- initial Postgres schema in `supabase/migrations/202607140001_initial_schema.sql`
+	- SQLite-to-Supabase seed exporter in `scripts/export_sqlite_to_supabase_seed.py`
+	- generated seed in `supabase/seed.sql`
+	- operational notes in `docs/SUPABASE_MIGRATION.md`
 - P1 architecture refactor STARTED:
 	- service layer `services/mercato_service.py`
 	- command/DTO objects
