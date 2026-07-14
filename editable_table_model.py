@@ -36,8 +36,22 @@ class EditableTableModel(QAbstractTableModel):
 
     # ---------- BASIC ----------
 
+    def _invalidate_computed_fields(self):
+        seen = set()
+        for func in self.computed_fields.values():
+            owner = getattr(func, "__self__", None)
+            target = owner or func
+            cache_key = id(target)
+            if cache_key in seen:
+                continue
+            seen.add(cache_key)
+            invalidate = getattr(target, "invalidate_cache", None)
+            if callable(invalidate):
+                invalidate()
+
     def refresh(self):
         self.beginResetModel()
+        self._invalidate_computed_fields()
         self.rows = self.repo.all()
         self.edited_cells = {}
         self.original_values = {}

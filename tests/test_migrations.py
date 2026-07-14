@@ -11,6 +11,9 @@ team_refs_migration = importlib.import_module(
 operation_snapshot_migration = importlib.import_module(
     "migrations.006_operation_snapshot"
 )
+integer_values_migration = importlib.import_module(
+    "migrations.007_integer_economic_values"
+)
 
 
 class MigrationRunnerTests(unittest.TestCase):
@@ -59,6 +62,7 @@ class MigrationRunnerTests(unittest.TestCase):
                 "004_semantic_undo_inverse_metadata",
                 "005_normalize_giocatore_team_refs",
                 "006_operation_snapshot",
+                "007_integer_economic_values",
             ]
             self.assertEqual(first, expected_revisions)
             self.assertEqual(second, [])
@@ -198,6 +202,77 @@ class MigrationRunnerTests(unittest.TestCase):
             self.assertEqual(row[1], 1)
             self.assertEqual(row[2], "Loan Team")
             self.assertEqual(row[3], 2)
+        finally:
+            engine.dispose()
+
+    def test_integer_values_migration_rounds_legacy_float_columns(self):
+        engine = create_engine("sqlite:///:memory:")
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE fantasquadre (
+                            id INTEGER PRIMARY KEY,
+                            nome VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE giocatori (
+                            id INTEGER PRIMARY KEY,
+                            nome VARCHAR NOT NULL,
+                            squadra VARCHAR,
+                            fantasquadra_id INTEGER,
+                            spesa FLOAT,
+                            data_acquisto DATE,
+                            fascia VARCHAR,
+                            quotazione INTEGER,
+                            dq INTEGER,
+                            valore_svincolo FLOAT,
+                            scadenza_contratto DATE,
+                            in_prestito_a VARCHAR,
+                            prestito_a_fantasquadra_id INTEGER,
+                            inizio_prestito DATE,
+                            fine_prestito DATE,
+                            convocato BOOLEAN,
+                            in_serie_a BOOLEAN,
+                            deleted BOOLEAN
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO giocatori (
+                            id, nome, spesa, valore_svincolo, convocato,
+                            in_serie_a, deleted
+                        )
+                        VALUES (1, 'Rounded', 84.19, 84.51, 1, 1, 0)
+                        """
+                    )
+                )
+
+                integer_values_migration.upgrade(connection)
+
+                columns = {
+                    row[1]: row[2].upper()
+                    for row in connection.execute(
+                        text("PRAGMA table_info(giocatori)")
+                    ).fetchall()
+                }
+                row = connection.execute(
+                    text("SELECT spesa, valore_svincolo FROM giocatori WHERE id = 1")
+                ).fetchone()
+
+            self.assertEqual(columns["spesa"], "INTEGER")
+            self.assertEqual(columns["valore_svincolo"], "INTEGER")
+            self.assertEqual(row[0], 84)
+            self.assertEqual(row[1], 85)
         finally:
             engine.dispose()
 

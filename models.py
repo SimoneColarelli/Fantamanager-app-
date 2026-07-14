@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Date, Float, ForeignKey, Table, Text
+from sqlalchemy import Column, Integer, String, Boolean, Date, ForeignKey, Table, Text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -19,12 +19,12 @@ class Giocatore(Base):
     nome = Column(String, nullable=False)
     squadra = Column(String)
     fantasquadra_id = Column(Integer, ForeignKey("fantasquadre.id"), nullable=True)
-    spesa = Column(Float)
+    spesa = Column(Integer)
     data_acquisto = Column(Date)
     fascia = Column(String)
     quotazione = Column(Integer)
     dq = Column(Integer)
-    valore_svincolo = Column(Float)
+    valore_svincolo = Column(Integer)
     scadenza_contratto = Column(Date)
     in_prestito_a = Column(String, nullable=True)
     prestito_a_fantasquadra_id = Column(Integer, ForeignKey("fantasquadre.id"), nullable=True)

@@ -1,7 +1,7 @@
 from typing import cast
 
 import openpyxl
-from sqlalchemy import func
+from sqlalchemy import case, func
 from PySide6.QtWidgets import QMainWindow, QTabWidget, QSplitter, QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, QComboBox, QFileDialog, QPushButton, QLabel, QMessageBox, QInputDialog
 from search_proxy_model import SearchProxyModel
 from PySide6.QtCore import Qt
@@ -137,6 +137,118 @@ def _patrimonio(fantasquadra):
         return int(fm + (valore or 0))
     finally:
         session.close()
+
+
+class FantasquadraStatsProvider:
+    """Batch-compute display-only fantasquadra stats for the table model."""
+
+    def __init__(self, session_factory):
+        self.session_factory = session_factory
+        self._cache = None
+
+    def invalidate_cache(self):
+        self._cache = None
+
+    def _stats_for(self, fantasquadra):
+        if self._cache is None:
+            self._cache = self._load_stats()
+        fq_id = getattr(fantasquadra, "id", None)
+        if fq_id is None:
+            return {
+                "in_rosa": 0,
+                "convocati": 0,
+                "valore_rosa": 0,
+                "patrimonio": 0,
+            }
+        return self._cache.get(
+            fq_id,
+            {
+                "in_rosa": 0,
+                "convocati": 0,
+                "valore_rosa": 0,
+                "patrimonio": 0,
+            },
+        )
+
+    def _load_stats(self):
+        session = self.session_factory()
+        try:
+            stats = {
+                row.id: {
+                    "in_rosa": 0,
+                    "convocati": 0,
+                    "valore_rosa": 0,
+                    "patrimonio": int(row.fm or 0),
+                }
+                for row in session.query(Fantasquadra.id, Fantasquadra.fm)
+                .filter(Fantasquadra.deleted == False)
+                .all()
+            }
+
+            effective_team_id = case(
+                (
+                    Giocatore.prestito_a_fantasquadra_id.isnot(None),
+                    Giocatore.prestito_a_fantasquadra_id,
+                ),
+                else_=Giocatore.fantasquadra_id,
+            )
+            roster_rows = (
+                session.query(
+                    effective_team_id.label("fantasquadra_id"),
+                    func.count(Giocatore.id),
+                    func.sum(
+                        case(
+                            (Giocatore.convocato == True, 1),
+                            else_=0,
+                        )
+                    ),
+                )
+                .filter(
+                    Giocatore.deleted == False,
+                    Giocatore.in_serie_a == True,
+                    effective_team_id.isnot(None),
+                )
+                .group_by(effective_team_id)
+                .all()
+            )
+            for fq_id, in_rosa, convocati in roster_rows:
+                if fq_id in stats:
+                    stats[fq_id]["in_rosa"] = int(in_rosa or 0)
+                    stats[fq_id]["convocati"] = int(convocati or 0)
+
+            value_rows = (
+                session.query(
+                    Giocatore.fantasquadra_id,
+                    func.sum(Giocatore.valore_svincolo),
+                )
+                .filter(
+                    Giocatore.deleted == False,
+                    Giocatore.fantasquadra_id.isnot(None),
+                )
+                .group_by(Giocatore.fantasquadra_id)
+                .all()
+            )
+            for fq_id, valore_rosa in value_rows:
+                if fq_id in stats:
+                    valore = int(valore_rosa or 0)
+                    stats[fq_id]["valore_rosa"] = valore
+                    stats[fq_id]["patrimonio"] = int(stats[fq_id]["patrimonio"] + valore)
+
+            return stats
+        finally:
+            session.close()
+
+    def in_rosa(self, fantasquadra):
+        return self._stats_for(fantasquadra)["in_rosa"]
+
+    def convocati(self, fantasquadra):
+        return self._stats_for(fantasquadra)["convocati"]
+
+    def valore_rosa(self, fantasquadra):
+        return self._stats_for(fantasquadra)["valore_rosa"]
+
+    def patrimonio(self, fantasquadra):
+        return self._stats_for(fantasquadra)["patrimonio"]
 
 
 class MainWindow(QMainWindow):
@@ -278,13 +390,14 @@ class MainWindow(QMainWindow):
 
         # ========== FANTASQUADRE TAB ==========
         f_repo = Repository(SessionLocal, Fantasquadra, FANTASQUADRE_FIELDS)
+        self.f_stats_provider = FantasquadraStatsProvider(SessionLocal)
         self.f_model = EditableTableModel(
             f_repo, FANTASQUADRE_FIELDS, FANTASQUADRE_HEADERS,
             computed_fields={
-            "in_rosa":     _count_in_rosa,
-            "convocati":   _count_convocati,
-            "valore_rosa": _valore_rosa,
-            "patrimonio":  _patrimonio,
+            "in_rosa":     self.f_stats_provider.in_rosa,
+            "convocati":   self.f_stats_provider.convocati,
+            "valore_rosa": self.f_stats_provider.valore_rosa,
+            "patrimonio":  self.f_stats_provider.patrimonio,
         }
         )
 

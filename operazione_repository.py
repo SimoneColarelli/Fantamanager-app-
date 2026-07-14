@@ -51,6 +51,35 @@ class OperazioneRepository:
         return indexed
 
     @staticmethod
+    def _allocate_integer_amount(total: int, weights: dict[int, int]) -> dict[int, int]:
+        """
+        Distribute an integer FM amount proportionally to integer weights while
+        preserving the exact total. Remainders are assigned deterministically.
+        """
+        positive_weights = {
+            key: int(value) for key, value in weights.items() if int(value) > 0
+        }
+        if total <= 0 or not positive_weights:
+            return {key: 0 for key in weights}
+
+        weight_total = sum(positive_weights.values())
+        allocations = {}
+        remainders = []
+        assigned = 0
+        for key, weight in positive_weights.items():
+            raw = total * weight
+            amount = raw // weight_total
+            remainder = raw % weight_total
+            allocations[key] = amount
+            assigned += amount
+            remainders.append((remainder, weight, key))
+
+        for _, _, key in sorted(remainders, reverse=True)[: total - assigned]:
+            allocations[key] += 1
+
+        return {key: int(allocations.get(key, 0)) for key in weights}
+
+    @staticmethod
     def _snapshot_json(
         op: Operazione,
         *,
@@ -267,8 +296,8 @@ class OperazioneRepository:
             undo.capture_before("fantasquadra", fq)
             undo.capture_before_many("giocatore", giocatori)
 
-            total_vs = sum(g.valore_svincolo or 0.0 for g in giocatori)
-            fq.fm += int(round(total_vs))
+            total_vs = sum(int(g.valore_svincolo or 0) for g in giocatori)
+            fq.fm += total_vs
 
             # Record the Operazione first, while players still exist
             data_norm = (data or datetime.date.today()).replace(day=1)
@@ -616,11 +645,11 @@ class OperazioneRepository:
 
             # amount_A = current valore_svincolo of players leaving fq_a
             amount_A = sum(
-                (g.valore_svincolo or 0.0) for g in giocatori_a
+                int(g.valore_svincolo or 0) for g in giocatori_a
             )
             # amount_B = current valore_svincolo of players leaving fq_b + fm
             amount_B = sum(
-                (g.valore_svincolo or 0.0) for g in giocatori_b
+                int(g.valore_svincolo or 0) for g in giocatori_b
             ) + fm
 
             # Normalise data_acquisto
@@ -633,14 +662,17 @@ class OperazioneRepository:
             # ── Players A → fq_b ─────────────────────────────────────────
             if tot_quotA == 0 and giocatori_a:
                 raise ValueError("La somma delle quotazioni dei giocatori A è zero.")
+            spese_a = self._allocate_integer_amount(
+                int(amount_B), {g.id: quot_a[g.id] for g in giocatori_a}
+            )
             for g in giocatori_a:
                 q_i     = quot_a[g.id]
-                spesa_i = round(amount_B * q_i / tot_quotA, 2) if tot_quotA else 0.0
+                spesa_i = spese_a.get(g.id, 0)
                 self._assign_team(g, fq_b)
                 self._clear_loan(g)
                 g.spesa              = spesa_i
                 g.data_acquisto      = data_norm
-                g.fascia             = str(calculate_fascia(int(spesa_i)))
+                g.fascia             = str(calculate_fascia(spesa_i))
                 g.quotazione         = q_i
                 g.dq                 = 0
                 g.valore_svincolo    = spesa_i
@@ -651,14 +683,17 @@ class OperazioneRepository:
             # ── Players B → fq_a ─────────────────────────────────────────
             if tot_quotB == 0 and giocatori_b:
                 raise ValueError("La somma delle quotazioni dei giocatori B è zero.")
+            spese_b = self._allocate_integer_amount(
+                int(amount_A), {g.id: quot_b[g.id] for g in giocatori_b}
+            )
             for g in giocatori_b:
                 q_j     = quot_b[g.id]
-                spesa_j = round(amount_A * q_j / tot_quotB, 2) if tot_quotB else 0.0
+                spesa_j = spese_b.get(g.id, 0)
                 self._assign_team(g, fq_a)
                 self._clear_loan(g)
                 g.spesa              = spesa_j
                 g.data_acquisto      = data_norm
-                g.fascia             = str(calculate_fascia(int(spesa_j)))
+                g.fascia             = str(calculate_fascia(spesa_j))
                 g.quotazione         = q_j
                 g.dq                 = 0
                 g.valore_svincolo    = spesa_j
@@ -801,7 +836,7 @@ class OperazioneRepository:
 
                 new_giocatori: List[Giocatore] = []
                 for row in rows:
-                    spesa = float(row["spesa"])
+                    spesa = int(row["spesa"])
                     g = Giocatore(
                         nome             = row["nome"],
                         squadra          = fq_nome,
@@ -937,7 +972,7 @@ class OperazioneRepository:
             estendi_giocatori: List[Giocatore] = []
 
             for row in giocatori_data:
-                spesa = float(row["spesa"])
+                spesa = int(row["spesa"])
 
                 g = Giocatore(
                     nome               = row["nome"],
@@ -1085,7 +1120,7 @@ class OperazioneRepository:
           aug / sep -> 35% of valore_svincolo, scadenza + 2 years
           all other months are not eligible for aumento contratto
         """
-        vs    = float(giocatore.valore_svincolo or 0)
+        vs    = int(giocatore.valore_svincolo or 0)
         month = giocatore.data_acquisto.month if giocatore.data_acquisto else 0
 
         if month in (1, 2):
@@ -1299,15 +1334,18 @@ class OperazioneRepository:
                 scadenza = datetime.date(data_norm.year + 3, 7, 1)
 
             # ── Update each Giocatore ────────────────────────────────────
+            spese = self._allocate_integer_amount(
+                int(fm), {g.id: quot_override[g.id] for g in giocatori}
+            )
             for g in giocatori:
                 q_i     = quot_override[g.id]
-                spesa_i = round(fm * q_i / tot_quot, 2)
+                spesa_i = spese.get(g.id, 0)
 
                 self._assign_team(g, fq_acquirente)
                 self._clear_loan(g)
                 g.spesa              = spesa_i
                 g.data_acquisto      = data_norm
-                g.fascia             = str(calculate_fascia(int(spesa_i)))
+                g.fascia             = str(calculate_fascia(spesa_i))
                 g.quotazione         = q_i
                 g.dq                 = 0
                 g.valore_svincolo    = spesa_i

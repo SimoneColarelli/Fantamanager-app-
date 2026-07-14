@@ -67,6 +67,21 @@ Next features:
 		- replaced app usage of legacy `giocatori_snapshot`
 		- every market operation writes a uniform before/after snapshot payload
 		- SQLite/Supabase migrations and seed export updated
+	- mercato_widget split IMPLEMENTED:
+		- created `widgets/mercato` package
+		- extracted shared UI helpers to `widgets/mercato/common.py`
+		- extracted player rows, picker and club panels to `widgets/mercato/player_widgets.py`
+		- extracted auction rows to `widgets/mercato/auction_row.py`
+		- extracted operation history cards to `widgets/mercato/history.py`
+		- kept `widgets/mercato/components.py` as a compatibility re-export
+		- kept `MercatoWidget` as orchestration/form/submit layer
+	- integer economic values IMPLEMENTED:
+		- changed `giocatori.spesa` and `giocatori.valore_svincolo` to Integer
+		- added SQLite/Supabase migrations and regenerated Supabase seed
+		- market allocations now preserve exact integer totals
+	- fantasquadre computed stats optimization IMPLEMENTED:
+		- added batch aggregate `FantasquadraStatsProvider`
+		- invalidates computed stats cache on table refresh
 
 In client app:
 - fix simulatore behaviour: when calculating a cessione without contropartite (Team B pays N fm for players of Team A), throw a warning if the amount of FM is less then the sum of valore svincolo of players
