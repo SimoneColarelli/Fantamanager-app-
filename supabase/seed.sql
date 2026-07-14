@@ -3,6 +3,8 @@
 begin;
 
 truncate table
+    public.semantic_undo_log,
+    public.entity_versions,
     public.operazione_giocatori,
     public.operazioni,
     public.giocatori,
@@ -399,9 +401,14 @@ insert into public.operazione_giocatori (operazione_id, giocatore_id) values (12
 insert into public.operazione_giocatori (operazione_id, giocatore_id) values (12, 278);
 insert into public.operazione_giocatori (operazione_id, giocatore_id) values (12, 279);
 
+-- entity_versions: 0 rows
+
+-- semantic_undo_log: 0 rows
+
 -- Align identity sequences after explicit ID inserts.
 select setval(pg_get_serial_sequence('public.fantasquadre', 'id'), greatest(coalesce((select max(id) from public.fantasquadre), 1), 1), (select count(*) > 0 from public.fantasquadre));
 select setval(pg_get_serial_sequence('public.giocatori', 'id'), greatest(coalesce((select max(id) from public.giocatori), 1), 1), (select count(*) > 0 from public.giocatori));
 select setval(pg_get_serial_sequence('public.operazioni', 'id'), greatest(coalesce((select max(id) from public.operazioni), 1), 1), (select count(*) > 0 from public.operazioni));
+select setval(pg_get_serial_sequence('public.semantic_undo_log', 'id'), greatest(coalesce((select max(id) from public.semantic_undo_log), 1), 1), (select count(*) > 0 from public.semantic_undo_log));
 
 commit;

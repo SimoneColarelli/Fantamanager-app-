@@ -53,6 +53,31 @@ TABLE_COLUMNS = {
         "operazione_id",
         "giocatore_id",
     ),
+    "entity_versions": (
+        "entity_type",
+        "entity_id",
+        "local_version",
+        "remote_version",
+        "updated_at",
+        "synced_at",
+    ),
+    "semantic_undo_log": (
+        "id",
+        "transaction_id",
+        "operation_id",
+        "action_type",
+        "entity_type",
+        "entity_id",
+        "before_snapshot",
+        "after_snapshot",
+        "status",
+        "created_at",
+        "undone_at",
+        "undo_error",
+        "operation_type",
+        "inverse_action_type",
+        "inverse_payload",
+    ),
 }
 
 BOOLEAN_COLUMNS = {
@@ -82,9 +107,15 @@ NUMERIC_COLUMNS = {
     ("operazioni", "conguaglio_da_id"),
     ("operazione_giocatori", "operazione_id"),
     ("operazione_giocatori", "giocatore_id"),
+    ("entity_versions", "entity_id"),
+    ("entity_versions", "local_version"),
+    ("entity_versions", "remote_version"),
+    ("semantic_undo_log", "id"),
+    ("semantic_undo_log", "operation_id"),
+    ("semantic_undo_log", "entity_id"),
 }
 
-SEQUENCE_TABLES = ("fantasquadre", "giocatori", "operazioni")
+SEQUENCE_TABLES = ("fantasquadre", "giocatori", "operazioni", "semantic_undo_log")
 
 
 def parse_args() -> argparse.Namespace:
@@ -154,6 +185,8 @@ def fetch_rows(conn: sqlite3.Connection, table: str) -> list[sqlite3.Row]:
     column_sql = ", ".join(columns)
     if table == "operazione_giocatori":
         order_sql = "operazione_id, giocatore_id"
+    elif table == "entity_versions":
+        order_sql = "entity_type, entity_id"
     else:
         order_sql = "id"
     return list(conn.execute(f"select {column_sql} from {table} order by {order_sql}"))
@@ -235,6 +268,8 @@ def build_seed(
         lines.extend(
             [
                 "truncate table",
+                "    public.semantic_undo_log,",
+                "    public.entity_versions,",
                 "    public.operazione_giocatori,",
                 "    public.operazioni,",
                 "    public.giocatori,",

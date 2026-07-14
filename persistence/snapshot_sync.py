@@ -4,7 +4,17 @@ import datetime
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Text,
+    select,
+    text,
+)
 from sqlalchemy.engine import Engine
 
 from models import Fantasquadra, Giocatore, Operazione, operazione_giocatori
@@ -13,15 +23,49 @@ from models import Fantasquadra, Giocatore, Operazione, operazione_giocatori
 FANTASQUADRE_TABLE = Fantasquadra.__table__
 GIOCATORI_TABLE = Giocatore.__table__
 OPERAZIONI_TABLE = Operazione.__table__
+SYNC_METADATA = MetaData()
+ENTITY_VERSIONS_TABLE = Table(
+    "entity_versions",
+    SYNC_METADATA,
+    Column("entity_type", String, primary_key=True),
+    Column("entity_id", Integer, primary_key=True),
+    Column("local_version", Integer),
+    Column("remote_version", Integer),
+    Column("updated_at", DateTime),
+    Column("synced_at", DateTime),
+)
+SEMANTIC_UNDO_LOG_TABLE = Table(
+    "semantic_undo_log",
+    SYNC_METADATA,
+    Column("id", Integer, primary_key=True),
+    Column("transaction_id", String),
+    Column("operation_id", Integer),
+    Column("action_type", String),
+    Column("entity_type", String),
+    Column("entity_id", Integer),
+    Column("before_snapshot", Text),
+    Column("after_snapshot", Text),
+    Column("status", String),
+    Column("created_at", DateTime),
+    Column("undone_at", DateTime),
+    Column("undo_error", Text),
+    Column("operation_type", String),
+    Column("inverse_action_type", String),
+    Column("inverse_payload", Text),
+)
 
 INSERT_ORDER = (
     FANTASQUADRE_TABLE,
     GIOCATORI_TABLE,
     OPERAZIONI_TABLE,
     operazione_giocatori,
+    ENTITY_VERSIONS_TABLE,
+    SEMANTIC_UNDO_LOG_TABLE,
 )
 
 DELETE_ORDER = (
+    SEMANTIC_UNDO_LOG_TABLE,
+    ENTITY_VERSIONS_TABLE,
     operazione_giocatori,
     OPERAZIONI_TABLE,
     GIOCATORI_TABLE,
@@ -32,6 +76,7 @@ IDENTITY_TABLES = (
     FANTASQUADRE_TABLE,
     GIOCATORI_TABLE,
     OPERAZIONI_TABLE,
+    SEMANTIC_UNDO_LOG_TABLE,
 )
 
 

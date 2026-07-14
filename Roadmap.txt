@@ -46,6 +46,11 @@ Next features:
 	- strict conflict detection blocks undo when touched entities changed later
 	- CLI: `scripts/semantic_undo.py list|undo`
 	- UI: `Modifica > Annulla operazione auditata...`
+	- remote recovery sync IMPLEMENTED:
+		- Supabase migration for `semantic_undo_log`
+		- Supabase migration for `entity_versions`
+		- snapshot push/pull includes audit/version tables
+		- `sync_outbox` remains local-only retry state
 	- next step: add a visible rettifica/undo card in storico operazioni
 - P1 architecture refactor STARTED:
 	- service layer `services/mercato_service.py`

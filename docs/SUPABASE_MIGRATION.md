@@ -35,6 +35,10 @@ verso Supabase in modalita manuale o automatica.
   - aggiunge FK normalizzate da `giocatori` a `fantasquadre`;
   - mantiene i campi testo `squadra` e `in_prestito_a` per compatibilita';
   - popola le nuove FK dai dati storici gia' presenti.
+- `supabase/migrations/20260714000400_reliability_audit_tables.sql`
+  - aggiunge `entity_versions` su Supabase;
+  - aggiunge `semantic_undo_log` su Supabase per recovery remota dell'audit;
+  - lascia `sync_outbox` solo locale, perche' e' una coda retry del client.
 - `scripts/export_sqlite_to_supabase_seed.py`
   - genera `supabase/seed.sql` da `fantamanager.db`;
   - conserva gli ID originali;
@@ -68,6 +72,10 @@ verso Supabase in modalita manuale o automatica.
    perche' lo snapshot runtime ora include `fantasquadra_id` e
    `prestito_a_fantasquadra_id`.
 
+   Deve inoltre avere la migration
+   `20260714000400_reliability_audit_tables.sql`, perche' lo snapshot runtime
+   include anche `entity_versions` e `semantic_undo_log`.
+
 3. Caricare i dati iniziali.
 
    Eseguire `supabase/seed.sql` nel SQL editor di Supabase. Il seed di default
@@ -99,6 +107,8 @@ verso Supabase in modalita manuale o automatica.
    - `giocatori`: 280
    - `operazioni`: 12
    - `operazione_giocatori`: 78
+   - `entity_versions`: 0
+   - `semantic_undo_log`: 0
 
 ## Decisioni rimandate
 
@@ -130,8 +140,8 @@ La persistenza ibrida lavora come snapshot mirror:
   rapide.
 - Il client desktop e' uno solo: non e' previsto un workflow multi-client con
   merge concorrenti.
-- Supabase/Postgres riceve uno snapshot coerente delle quattro tabelle
-  applicative finche' non sara' attivo il sync per evento.
+- Supabase/Postgres riceve uno snapshot coerente delle tabelle applicative e
+  delle tabelle remote di recovery/audit.
 - Se Supabase non e' configurato o non raggiungibile, i commit locali non
   vengono bloccati; lo stato dell'ultimo sync resta in `sync_state`.
 - Le righe non valide di `operazione_giocatori` vengono saltate anche nel sync
@@ -151,9 +161,11 @@ I backup e gli undo non sono lo stesso meccanismo:
 
 La base DB locale per il prossimo step e' gia' prevista:
 
-- `sync_outbox`: coda persistente di eventi da sincronizzare.
-- `entity_versions`: versioning locale/remoto per rilevare desincronizzazioni.
-- `semantic_undo_log`: audit log per rollback semantici mirati.
+- `sync_outbox`: coda persistente locale di eventi da sincronizzare.
+- `entity_versions`: versioning locale/remoto per rilevare desincronizzazioni,
+  incluso nello snapshot Supabase.
+- `semantic_undo_log`: audit log per rollback semantici mirati, incluso nello
+  snapshot Supabase per recovery in caso di perdita del DB locale.
 
 Stato corrente del semantic undo:
 

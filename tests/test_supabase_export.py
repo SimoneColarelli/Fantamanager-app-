@@ -64,6 +64,34 @@ class SupabaseSeedExporterTests(unittest.TestCase):
                 giocatore_id integer not null,
                 primary key (operazione_id, giocatore_id)
             );
+
+            create table entity_versions (
+                entity_type varchar not null,
+                entity_id integer not null,
+                local_version integer not null,
+                remote_version integer not null,
+                updated_at timestamp,
+                synced_at timestamp,
+                primary key (entity_type, entity_id)
+            );
+
+            create table semantic_undo_log (
+                id integer primary key,
+                transaction_id varchar not null,
+                operation_id integer,
+                action_type varchar not null,
+                entity_type varchar not null,
+                entity_id integer,
+                before_snapshot text,
+                after_snapshot text,
+                status varchar not null,
+                created_at timestamp,
+                undone_at timestamp,
+                undo_error text,
+                operation_type varchar,
+                inverse_action_type varchar,
+                inverse_payload text
+            );
             """
         )
 
@@ -110,17 +138,52 @@ class SupabaseSeedExporterTests(unittest.TestCase):
         self.conn.execute(
             "insert into operazione_giocatori values (99, 10)"
         )
+        self.conn.execute(
+            """
+            insert into entity_versions
+                (entity_type, entity_id, local_version, remote_version, updated_at, synced_at)
+            values
+                ('giocatore', 10, 2, 1, '2026-07-14 12:00:00', null)
+            """
+        )
+        self.conn.execute(
+            """
+            insert into semantic_undo_log
+                (
+                    id, transaction_id, operation_id, action_type, entity_type,
+                    entity_id, before_snapshot, after_snapshot, status,
+                    created_at, undone_at, undo_error, operation_type,
+                    inverse_action_type, inverse_payload
+                )
+            values
+                (
+                    30, 'tx-1', 20, 'asta', 'giocatore',
+                    10, null, '{"id": 10}', 'active',
+                    '2026-07-14 12:00:00', null, null, 'asta',
+                    'undo_asta', '{"operation_id": 20}'
+                )
+            """
+        )
 
         validate_schema(self.conn)
         seed_sql, counts, skipped_rows = build_seed(self.conn, truncate=False)
 
         self.assertEqual(counts["operazione_giocatori"], 1)
+        self.assertEqual(counts["entity_versions"], 1)
+        self.assertEqual(counts["semantic_undo_log"], 1)
         self.assertEqual(skipped_rows, [(99, 10, "missing operazione")])
         self.assertIn(
             "insert into public.operazione_giocatori "
             "(operazione_id, giocatore_id) values (20, 10);",
             seed_sql,
         )
+        self.assertIn(
+            "insert into public.entity_versions "
+            "(entity_type, entity_id, local_version, remote_version, updated_at, synced_at) "
+            "values ('giocatore', 10, 2, 1, '2026-07-14 12:00:00', null);",
+            seed_sql,
+        )
+        self.assertIn("insert into public.semantic_undo_log", seed_sql)
         self.assertNotIn(
             "insert into public.operazione_giocatori "
             "(operazione_id, giocatore_id) values (99, 10);",

@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from database import Base
+from migration_runner import run_migrations
 from models import Fantasquadra, Giocatore, Operazione
 from persistence.snapshot_sync import SnapshotSyncGateway
 
@@ -15,6 +16,8 @@ class HybridPersistenceTests(unittest.TestCase):
         self.remote_engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.local_engine)
         Base.metadata.create_all(self.remote_engine)
+        run_migrations(self.local_engine)
+        run_migrations(self.remote_engine)
         self.Session = sessionmaker(
             bind=self.local_engine,
             autocommit=False,
@@ -65,6 +68,33 @@ class HybridPersistenceTests(unittest.TestCase):
                     """
                 )
             )
+            session.execute(
+                text(
+                    """
+                    INSERT INTO entity_versions (
+                        entity_type, entity_id, local_version, remote_version
+                    )
+                    VALUES ('giocatore', 10, 2, 1)
+                    """
+                )
+            )
+            session.execute(
+                text(
+                    """
+                    INSERT INTO semantic_undo_log (
+                        id, transaction_id, operation_id, action_type,
+                        operation_type, entity_type, entity_id,
+                        before_snapshot, after_snapshot, status,
+                        inverse_action_type, inverse_payload
+                    )
+                    VALUES (
+                        1, 'tx-1', 20, 'asta', 'asta', 'giocatore', 10,
+                        null, '{"id": 10}', 'active',
+                        'undo_asta', '{"operation_id": 20}'
+                    )
+                    """
+                )
+            )
             session.commit()
         finally:
             session.close()
@@ -79,12 +109,20 @@ class HybridPersistenceTests(unittest.TestCase):
             links = connection.execute(
                 text("SELECT COUNT(*) FROM operazione_giocatori")
             ).scalar()
+            versions = connection.execute(
+                text("SELECT COUNT(*) FROM entity_versions")
+            ).scalar()
+            undo_rows = connection.execute(
+                text("SELECT COUNT(*) FROM semantic_undo_log")
+            ).scalar()
 
         self.assertTrue(result.ok)
         self.assertEqual(teams, 1)
         self.assertEqual(players, 1)
         self.assertEqual(operations, 1)
         self.assertEqual(links, 1)
+        self.assertEqual(versions, 1)
+        self.assertEqual(undo_rows, 1)
         self.assertEqual(
             result.skipped_links,
             [
