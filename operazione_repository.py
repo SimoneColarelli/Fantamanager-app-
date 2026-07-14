@@ -20,6 +20,23 @@ class OperazioneRepository:
         self.session_factory = session_factory
         self.session = session_factory()
 
+    @staticmethod
+    def _assign_team(giocatore: Giocatore, fantasquadra: Fantasquadra) -> None:
+        giocatore.squadra = fantasquadra.nome
+        giocatore.fantasquadra_id = fantasquadra.id
+
+    @staticmethod
+    def _assign_loan_to(giocatore: Giocatore, fantasquadra: Fantasquadra) -> None:
+        giocatore.in_prestito_a = fantasquadra.nome
+        giocatore.prestito_a_fantasquadra_id = fantasquadra.id
+
+    @staticmethod
+    def _clear_loan(giocatore: Giocatore) -> None:
+        giocatore.in_prestito_a = None
+        giocatore.prestito_a_fantasquadra_id = None
+        giocatore.inizio_prestito = None
+        giocatore.fine_prestito = None
+
     # ------------------------------------------------------------------ #
     #  READ                                                                #
     # ------------------------------------------------------------------ #
@@ -227,8 +244,8 @@ class OperazioneRepository:
     ) -> Operazione:
         """
         Execute a 'scambio prestiti':
-          • Players from fq_a go on loan to fq_b (in_prestito_a = fq_b.nome).
-          • Players from fq_b go on loan to fq_a (in_prestito_a = fq_a.nome).
+          • Players from fq_a go on loan to fq_b (legacy text + FK).
+          • Players from fq_b go on loan to fq_a (legacy text + FK).
           • squadra, spesa, fascia etc. unchanged on both sides.
           • FM balances updated if fm > 0 (fq_b pays fq_a).
           • Single atomic commit.
@@ -264,14 +281,14 @@ class OperazioneRepository:
 
             # Players from fq_a → on loan to fq_b
             for g in giocatori_a:
-                g.in_prestito_a   = fq_b.nome
+                self._assign_loan_to(g, fq_b)
                 g.inizio_prestito = inizio_norm
                 g.fine_prestito   = fine_map_a[g.id]
                 g.convocato       = False
 
             # Players from fq_b → on loan to fq_a
             for g in giocatori_b:
-                g.in_prestito_a   = fq_a.nome
+                self._assign_loan_to(g, fq_a)
                 g.inizio_prestito = inizio_norm
                 g.fine_prestito   = fine_map_b[g.id]
                 g.convocato       = False
@@ -319,7 +336,7 @@ class OperazioneRepository:
     ) -> Operazione:
         """
         Execute a 'prestito':
-          • Set in_prestito_a, inizio_prestito, fine_prestito, convocato on each player.
+          • Set loan target text/FK, inizio_prestito, fine_prestito, convocato on each player.
           • squadra, spesa, fascia, etc. are NOT changed (player stays registered to fq_prestante).
           • Update FM balances if fm > 0.
           • Record Operazione.
@@ -351,7 +368,7 @@ class OperazioneRepository:
             inizio_norm = inizio_prestito.replace(day=1)
 
             for g in giocatori:
-                g.in_prestito_a    = fq_ricevente.nome
+                self._assign_loan_to(g, fq_ricevente)
                 g.inizio_prestito  = inizio_norm
                 g.fine_prestito    = fine_map[g.id]
                 g.convocato        = False
@@ -470,7 +487,8 @@ class OperazioneRepository:
             for g in giocatori_a:
                 q_i     = quot_a[g.id]
                 spesa_i = round(amount_B * q_i / tot_quotA, 2) if tot_quotA else 0.0
-                g.squadra            = fq_b.nome
+                self._assign_team(g, fq_b)
+                self._clear_loan(g)
                 g.spesa              = spesa_i
                 g.data_acquisto      = data_norm
                 g.fascia             = str(calculate_fascia(int(spesa_i)))
@@ -487,7 +505,8 @@ class OperazioneRepository:
             for g in giocatori_b:
                 q_j     = quot_b[g.id]
                 spesa_j = round(amount_A * q_j / tot_quotB, 2) if tot_quotB else 0.0
-                g.squadra            = fq_a.nome
+                self._assign_team(g, fq_a)
+                self._clear_loan(g)
                 g.spesa              = spesa_j
                 g.data_acquisto      = data_norm
                 g.fascia             = str(calculate_fascia(int(spesa_j)))
@@ -604,6 +623,7 @@ class OperazioneRepository:
                     g = Giocatore(
                         nome             = row["nome"],
                         squadra          = fq_nome,
+                        fantasquadra_id   = fq_id,
                         spesa            = spesa,
                         data_acquisto    = data_norm,
                         fascia           = str(calculate_fascia(int(spesa))),
@@ -612,6 +632,7 @@ class OperazioneRepository:
                         valore_svincolo  = spesa,
                         scadenza_contratto = scadenza,
                         in_prestito_a    = None,
+                        prestito_a_fantasquadra_id = None,
                         inizio_prestito  = None,
                         fine_prestito    = None,
                         convocato        = False,
@@ -720,6 +741,7 @@ class OperazioneRepository:
                 g = Giocatore(
                     nome               = row["nome"],
                     squadra            = fq.nome,
+                    fantasquadra_id     = fq_id,
                     spesa              = spesa,
                     data_acquisto      = data_norm,
                     fascia             = str(calculate_fascia(int(spesa))),
@@ -728,6 +750,7 @@ class OperazioneRepository:
                     valore_svincolo    = spesa,
                     scadenza_contratto = scadenza,
                     in_prestito_a      = None,
+                    prestito_a_fantasquadra_id = None,
                     inizio_prestito    = None,
                     fine_prestito      = None,
                     convocato          = False,
@@ -1027,7 +1050,8 @@ class OperazioneRepository:
                 q_i     = quot_override[g.id]
                 spesa_i = round(fm * q_i / tot_quot, 2)
 
-                g.squadra            = fq_acquirente.nome
+                self._assign_team(g, fq_acquirente)
+                self._clear_loan(g)
                 g.spesa              = spesa_i
                 g.data_acquisto      = data_norm
                 g.fascia             = str(calculate_fascia(int(spesa_i)))

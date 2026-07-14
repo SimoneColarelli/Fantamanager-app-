@@ -68,6 +68,7 @@ class Repository:
     def create(self, data: dict):
         converted_data = self._convert_data_types(data)
         obj = self.model(**converted_data)
+        self.sync_compat_fields(obj)
         self.session.add(obj)
         self.session.commit()
         return obj
@@ -80,7 +81,30 @@ class Repository:
 
     def set_value(self, obj, field, value):
         setattr(obj, field, value)
+        self.sync_compat_fields(obj)
         self.session.commit()
+
+    def sync_compat_fields(self, obj):
+        """Keep legacy text team fields aligned with the normalized FK columns."""
+        if self.model.__name__ != "Giocatore":
+            return
+
+        from models import Fantasquadra
+
+        def resolve_team_id(name):
+            if not name or not str(name).strip():
+                return None
+            return (
+                self.session.query(Fantasquadra.id)
+                .filter(Fantasquadra.nome == str(name), Fantasquadra.deleted == False)
+                .order_by(Fantasquadra.id)
+                .scalar()
+            )
+
+        obj.fantasquadra_id = resolve_team_id(getattr(obj, "squadra", None))
+        obj.prestito_a_fantasquadra_id = resolve_team_id(
+            getattr(obj, "in_prestito_a", None)
+        )
     
     def soft_delete(self, obj):
         if obj not in self.session:

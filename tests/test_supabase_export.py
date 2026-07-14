@@ -30,6 +30,7 @@ class SupabaseSeedExporterTests(unittest.TestCase):
                 id integer primary key,
                 nome varchar not null,
                 squadra varchar,
+                fantasquadra_id integer,
                 spesa float,
                 data_acquisto date,
                 fascia varchar,
@@ -38,6 +39,7 @@ class SupabaseSeedExporterTests(unittest.TestCase):
                 valore_svincolo float,
                 scadenza_contratto date,
                 in_prestito_a varchar,
+                prestito_a_fantasquadra_id integer,
                 inizio_prestito date,
                 fine_prestito date,
                 convocato boolean,
@@ -79,13 +81,14 @@ class SupabaseSeedExporterTests(unittest.TestCase):
             insert into giocatori
                 (
                     id, nome, squadra, spesa, data_acquisto, fascia, quotazione,
-                    dq, valore_svincolo, scadenza_contratto, in_prestito_a,
-                    inizio_prestito, fine_prestito, convocato, in_serie_a, deleted
+                    fantasquadra_id, dq, valore_svincolo, scadenza_contratto,
+                    in_prestito_a, prestito_a_fantasquadra_id, inizio_prestito,
+                    fine_prestito, convocato, in_serie_a, deleted
                 )
             values
                 (
                     10, 'Player A', 'Team A', 1.0, '2026-01-01', '1', 10,
-                    0, 1.0, '2028-07-01', null, null, null, 1, 1, 0
+                    1, 0, 1.0, '2028-07-01', null, null, null, null, 1, 1, 0
                 )
             """
         )

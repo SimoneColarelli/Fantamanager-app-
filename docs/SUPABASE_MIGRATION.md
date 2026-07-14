@@ -31,6 +31,10 @@ verso Supabase in modalita manuale o automatica.
   - baseline Postgres equivalente al modello SQLite attuale;
   - vincoli FK su operazioni, squadre e giocatori;
   - indici sulle colonne piu' usate per filtri e join.
+- `supabase/migrations/20260714000300_normalize_giocatore_team_refs.sql`
+  - aggiunge FK normalizzate da `giocatori` a `fantasquadre`;
+  - mantiene i campi testo `squadra` e `in_prestito_a` per compatibilita';
+  - popola le nuove FK dai dati storici gia' presenti.
 - `scripts/export_sqlite_to_supabase_seed.py`
   - genera `supabase/seed.sql` da `fantamanager.db`;
   - conserva gli ID originali;
@@ -53,12 +57,16 @@ verso Supabase in modalita manuale o automatica.
    python scripts/export_sqlite_to_supabase_seed.py --db fantamanager.db --out supabase/seed.sql
    ```
 
-2. Applicare la migration al progetto Supabase.
+2. Applicare le migration al progetto Supabase.
 
    Se la GitHub integration del progetto Supabase legge le migration dal repo,
-   fare push della cartella `supabase/`. In alternativa aprire il file
-   `supabase/migrations/20260714000100_initial_schema.sql` nel SQL editor di
-   Supabase ed eseguirlo una volta.
+   fare push della cartella `supabase/`. In alternativa aprire i file in
+   `supabase/migrations/` nel SQL editor di Supabase ed eseguirli in ordine.
+
+   Prima di usare un nuovo push/sync dall'app, il progetto Supabase deve avere
+   anche la migration `20260714000300_normalize_giocatore_team_refs.sql`,
+   perche' lo snapshot runtime ora include `fantasquadra_id` e
+   `prestito_a_fantasquadra_id`.
 
 3. Caricare i dati iniziali.
 
@@ -96,12 +104,23 @@ verso Supabase in modalita manuale o automatica.
 
 - Auth e Row Level Security: non abilitate nella baseline per non bloccare la
   prima importazione dati.
-- Normalizzazione di `giocatori.squadra` e `giocatori.in_prestito_a`: restano
-  campi testo per fedelta' con SQLite; una migration successiva potra'
-  introdurre FK verso `fantasquadre`.
 - Auth runtime desktop: per ora la connessione remota usa una URL Postgres via
   variabile d'ambiente. Prima di distribuire l'app andra' evitato di esporre
   credenziali dirette nel client.
+
+## Normalizzazione riferimenti fantasquadra
+
+La normalizzazione e' stata introdotta in modo compatibile:
+
+- `giocatori.squadra` resta il campo testo storico usato dalla UI.
+- `giocatori.fantasquadra_id` contiene la FK verso la fantasquadra proprietaria.
+- `giocatori.in_prestito_a` resta il campo testo storico per il prestito.
+- `giocatori.prestito_a_fantasquadra_id` contiene la FK verso la fantasquadra
+  che riceve il giocatore in prestito.
+
+Le operazioni di mercato e le modifiche manuali dalla tabella mantengono
+allineati campo testo e FK. Le FK sono nullable per permettere import storici,
+nomi non riconosciuti e migrazioni progressive senza bloccare l'app.
 
 ## Persistenza ibrida runtime
 

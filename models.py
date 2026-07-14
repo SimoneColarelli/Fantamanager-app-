@@ -18,6 +18,7 @@ class Giocatore(Base):
     id = Column(Integer, primary_key=True)
     nome = Column(String, nullable=False)
     squadra = Column(String)
+    fantasquadra_id = Column(Integer, ForeignKey("fantasquadre.id"), nullable=True)
     spesa = Column(Float)
     data_acquisto = Column(Date)
     fascia = Column(String)
@@ -26,6 +27,7 @@ class Giocatore(Base):
     valore_svincolo = Column(Float)
     scadenza_contratto = Column(Date)
     in_prestito_a = Column(String, nullable=True)
+    prestito_a_fantasquadra_id = Column(Integer, ForeignKey("fantasquadre.id"), nullable=True)
     inizio_prestito = Column(Date, nullable=True)
     fine_prestito = Column(Date, nullable=True)
     convocato = Column(Boolean, default=True)
@@ -37,6 +39,11 @@ class Giocatore(Base):
         "Operazione",
         secondary=operazione_giocatori,
         back_populates="giocatori",
+    )
+    fantasquadra = relationship("Fantasquadra", foreign_keys=[fantasquadra_id])
+    prestito_a_fantasquadra = relationship(
+        "Fantasquadra",
+        foreign_keys=[prestito_a_fantasquadra_id],
     )
 
 

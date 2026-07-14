@@ -132,6 +132,8 @@ class BusinessRuleTests(unittest.TestCase):
             ops = session.query(Operazione).order_by(Operazione.id).all()
 
             self.assertEqual(team.fm, 865)
+            self.assertEqual(player.fantasquadra_id, team_id)
+            self.assertIsNone(player.prestito_a_fantasquadra_id)
             self.assertEqual(player.scadenza_contratto, datetime.date(2031, 7, 1))
             self.assertEqual([op.tipo_operazione for op in ops], ["asta", "aumento contratto"])
             self.assertEqual(ops[0].conguaglio, 100)
@@ -169,6 +171,9 @@ class BusinessRuleTests(unittest.TestCase):
             self.assertEqual(seller.fm, 200)
             self.assertEqual(buyer.fm, 800)
             self.assertEqual(player.squadra, "Buyer")
+            self.assertEqual(player.fantasquadra_id, buyer_id)
+            self.assertIsNone(player.in_prestito_a)
+            self.assertIsNone(player.prestito_a_fantasquadra_id)
             self.assertEqual(player.spesa, 200)
             self.assertEqual(player.valore_svincolo, 200)
             self.assertEqual(player.scadenza_contratto, datetime.date(2028, 7, 1))

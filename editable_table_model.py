@@ -406,6 +406,8 @@ class EditableTableModel(QAbstractTableModel):
                     column = getattr(self.repo.model, field)
                     converted_value = self.repo._convert_value(value, column.type)
                     setattr(obj, field, converted_value)
+                if hasattr(self.repo, "sync_compat_fields"):
+                    self.repo.sync_compat_fields(obj)
             
             if self.edited_cells:
                 self.repo.session.commit()
@@ -443,6 +445,8 @@ class EditableTableModel(QAbstractTableModel):
                     column = getattr(self.repo.model, field)
                     converted_value = self.repo._convert_value(value, column.type)
                     setattr(obj, field, converted_value)
+                if hasattr(self.repo, "sync_compat_fields"):
+                    self.repo.sync_compat_fields(obj)
                 
                 self.repo.session.commit()
                 
