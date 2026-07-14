@@ -8,6 +8,7 @@ from sqlalchemy import text
 
 MIGRATIONS = (
     "migrations.001_baseline",
+    "migrations.002_sync_state",
 )
 
 

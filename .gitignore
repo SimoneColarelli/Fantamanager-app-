@@ -14,6 +14,11 @@ dist/
 venv/
 env/
 
+# Local secrets/configuration
+.env
+.env.*
+!.env.example
+
 # SQLite runtime sidecars
 # Keep fantamanager.db versioned; ignore volatile WAL/SHM sidecar files.
 *.db-shm

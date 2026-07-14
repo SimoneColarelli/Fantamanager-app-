@@ -19,6 +19,7 @@ from operazione_repository import OperazioneRepository
 from mercato_widget import MercatoWidget
 from undo_manager import UndoManager
 from migration_runner import run_migrations
+from persistence import create_hybrid_persistence_from_env
 
 
 def _resolve_nome(fantasquadra) -> str:
@@ -142,6 +143,8 @@ class MainWindow(QMainWindow):
         # Create all tables (including the new ones for Operazione)
         Base.metadata.create_all(engine)
         run_migrations(engine)
+        self.hybrid_persistence = create_hybrid_persistence_from_env(SessionLocal, engine)
+        self.hybrid_persistence.start()
 
         # === VARIABILE DI STATO DELLE QUOTAZIONI ===
         self.quotazioni_data = {}
@@ -328,10 +331,12 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self.tabs)
 
+        self._repos = [g_repo, f_repo, self.op_repo]
+
         self.data_manager_ui = DataManagerUI(
             self,
             refresh_callback=self.refresh_all_data,
-            repos=[g_repo, f_repo, self.op_repo],
+            repos=self._repos,
         )
 
         # ── Undo manager ─────────────────────────────────────────────────────
@@ -342,8 +347,9 @@ class MainWindow(QMainWindow):
         )
         # Register every repository so their sessions are closed and
         # replaced with fresh ones after each undo restore
-        self._undo_mgr._repos = [g_repo, f_repo, self.op_repo]
+        self._undo_mgr._repos = self._repos
         self._undo_mgr.register_refresh_callback(self.refresh_all_data)
+        self._undo_mgr.register_refresh_callback(self._sync_supabase_after_undo)
         # Dedicated callback: enable the undo action after every commit
         self._undo_mgr.register_snapshot_callback(self._update_undo_action)
         self._undo_mgr.start()
@@ -403,6 +409,20 @@ class MainWindow(QMainWindow):
         import_table_action.triggered.connect(self.data_manager_ui.import_single_table)
         import_menu.addAction(import_table_action)
 
+        data_menu.addSeparator()
+
+        supabase_menu = data_menu.addMenu("Supabase")
+
+        push_supabase_action = QAction("Sync locale -> Supabase", self)
+        push_supabase_action.setEnabled(self.hybrid_persistence.is_configured)
+        push_supabase_action.triggered.connect(self._sync_supabase_push_now)
+        supabase_menu.addAction(push_supabase_action)
+
+        pull_supabase_action = QAction("Sync Supabase -> locale", self)
+        pull_supabase_action.setEnabled(self.hybrid_persistence.is_configured)
+        pull_supabase_action.triggered.connect(self._sync_supabase_pull_now)
+        supabase_menu.addAction(pull_supabase_action)
+
         complete_update_action = QAction("Complete Update", self)
         complete_update_action.triggered.connect(self._complete_update)
         update_menu.addAction(complete_update_action)
@@ -414,6 +434,75 @@ class MainWindow(QMainWindow):
         serie_a_update_action = QAction("Serie A Update", self)
         serie_a_update_action.triggered.connect(self._serie_a_update)
         update_menu.addAction(serie_a_update_action)
+
+    def _sync_supabase_push_now(self):
+        result = self.hybrid_persistence.push_local_to_remote(
+            reason="manual_menu",
+            raise_on_error=False,
+        )
+        self._show_sync_result(result)
+
+    def _sync_supabase_pull_now(self):
+        reply = QMessageBox.question(
+            self,
+            "Conferma sync",
+            "Sostituire il database SQLite locale con lo snapshot Supabase?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self._close_registered_repos()
+            result = self.hybrid_persistence.pull_remote_to_local(
+                reason="manual_menu",
+                raise_on_error=False,
+            )
+        finally:
+            self._reopen_registered_repos()
+
+        self.refresh_all_data()
+        self._show_sync_result(result)
+
+    def _sync_supabase_after_undo(self):
+        if not self.hybrid_persistence.is_configured:
+            return
+        if self.hybrid_persistence.sync_mode == "off":
+            return
+        self.hybrid_persistence.push_local_to_remote(reason="undo_restore")
+
+    def _show_sync_result(self, result):
+        if result is None:
+            QMessageBox.information(self, "Supabase sync", "Nessun sync eseguito.")
+            return
+
+        counts = ", ".join(f"{key}: {value}" for key, value in result.counts.items())
+        details = result.message
+        if counts:
+            details += "\n" + counts
+        if result.skipped_links:
+            details += "\nRighe ponte saltate: " + str(len(result.skipped_links))
+
+        if result.ok:
+            QMessageBox.information(self, "Supabase sync", details)
+        else:
+            QMessageBox.warning(self, "Supabase sync", details)
+
+    def _close_registered_repos(self):
+        for repo in getattr(self, "_repos", []):
+            try:
+                repo.session.close()
+            except Exception:
+                pass
+        engine.dispose()
+
+    def _reopen_registered_repos(self):
+        for repo in getattr(self, "_repos", []):
+            try:
+                repo.session = repo.session_factory()
+            except Exception:
+                pass
 
     def update_squadra_combo(self):
         session = SessionLocal()
@@ -746,6 +835,13 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Errore Undo", "Impossibile annullare:\n" + str(e))
+
+    def closeEvent(self, event):
+        try:
+            if hasattr(self, "hybrid_persistence"):
+                self.hybrid_persistence.stop()
+        finally:
+            super().closeEvent(event)
 
     def get_giocatori_base_model(self):
         model = self.g_view.model()

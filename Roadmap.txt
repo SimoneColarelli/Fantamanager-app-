@@ -23,6 +23,12 @@ Next features:
 	- SQLite-to-Supabase seed exporter in `scripts/export_sqlite_to_supabase_seed.py`
 	- generated seed in `supabase/seed.sql`
 	- operational notes in `docs/SUPABASE_MIGRATION.md`
+- Hybrid Supabase + SQLite persistence IMPLEMENTED:
+	- optional runtime sync configured by local `.env`
+	- local SQLite remains the undo/recovery store
+	- manual CLI/menu push and pull snapshot sync
+	- auto post-commit push mode available with `FANTAMANAGER_SYNC_MODE=auto`
+	- local `sync_state` migration records latest sync status
 - P1 architecture refactor STARTED:
 	- service layer `services/mercato_service.py`
 	- command/DTO objects
