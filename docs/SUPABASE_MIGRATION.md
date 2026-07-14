@@ -109,12 +109,61 @@ La persistenza ibrida lavora come snapshot mirror:
 
 - SQLite resta il database locale usato dall'app, dall'undo e dalle recovery
   rapide.
+- Il client desktop e' uno solo: non e' previsto un workflow multi-client con
+  merge concorrenti.
 - Supabase/Postgres riceve uno snapshot coerente delle quattro tabelle
-  applicative.
+  applicative finche' non sara' attivo il sync per evento.
 - Se Supabase non e' configurato o non raggiungibile, i commit locali non
   vengono bloccati; lo stato dell'ultimo sync resta in `sync_state`.
 - Le righe non valide di `operazione_giocatori` vengono saltate anche nel sync
   runtime, come nel seed export.
+
+### Backup, undo semantico e retry
+
+I backup e gli undo non sono lo stesso meccanismo:
+
+- Backup: JSON snapshot completo o per tabella, esposto nella UI come
+  `Data > Backup`.
+- Undo snapshot: ripristino rapido locale dell'intero SQLite tramite
+  `UndoManager`, utile come recovery immediata.
+- Undo semantico: feature da completare usando `semantic_undo_log`, con audit
+  before/after per annullare una singola transazione o operazione senza
+  ripristinare tutto il dataset.
+
+La base DB locale per il prossimo step e' gia' prevista:
+
+- `sync_outbox`: coda persistente di eventi da sincronizzare.
+- `entity_versions`: versioning locale/remoto per rilevare desincronizzazioni.
+- `semantic_undo_log`: audit log per rollback semantici mirati.
+
+Stato corrente del semantic undo:
+
+- Tutte le operazioni di mercato scrivono righe audit in `semantic_undo_log`.
+- Ogni riga audit conserva snapshot `before` e `after` dell'entita' toccata.
+- Ogni tipo di operazione ha una `inverse_action_type` esplicita:
+  - `undo_acquisto_definitivo`
+  - `undo_scambio_definitivo`
+  - `undo_prestito`
+  - `undo_scambio_prestiti`
+  - `undo_svincolo`
+  - `undo_asta`
+  - `undo_aumento_contratto`
+- L'esecuzione dell'undo semantico e' implementata:
+  - CLI: `python scripts/semantic_undo.py list`
+  - CLI: `python scripts/semantic_undo.py undo --latest`
+  - UI: `Modifica > Annulla operazione auditata...`
+- L'undo semantico usa controlli strict: se una entita' toccata e' cambiata
+  dopo la transazione, l'annullamento viene bloccato per evitare ripristini
+  ambigui.
+
+I prossimi passaggi saranno:
+
+1. Aggiungere nello storico operazioni una card/marker visibile per operazioni
+   annullate semanticamente.
+2. Accodare eventi applicativi reali in `sync_outbox`.
+3. In caso di errore sync aggiornare `retry_count`, `last_error` e
+   `next_attempt_at`.
+4. A sync riuscito marcare gli eventi come `synced` e aggiornare le versioni.
 
 ### Configurazione `.env`
 

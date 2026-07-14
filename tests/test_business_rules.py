@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database import Base
+from migration_runner import run_migrations
 from models import Fantasquadra, Giocatore, Operazione
 from operazione_repository import OperazioneRepository
 from services.mercato_commands import (
@@ -22,6 +23,7 @@ class BusinessRuleTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(self.engine)
+        run_migrations(self.engine)
         self.Session = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
         self.repo = OperazioneRepository(self.Session)
         self.service = MercatoService.from_repository(self.repo)

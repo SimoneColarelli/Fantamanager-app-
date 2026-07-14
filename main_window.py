@@ -2,7 +2,7 @@ from typing import cast
 
 import openpyxl
 from sqlalchemy import func
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QSplitter, QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, QComboBox, QFileDialog, QPushButton, QLabel, QMessageBox
+from PySide6.QtWidgets import QMainWindow, QTabWidget, QSplitter, QVBoxLayout, QHBoxLayout, QWidget, QLineEdit, QComboBox, QFileDialog, QPushButton, QLabel, QMessageBox, QInputDialog
 from search_proxy_model import SearchProxyModel
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
@@ -19,7 +19,12 @@ from operazione_repository import OperazioneRepository
 from mercato_widget import MercatoWidget
 from undo_manager import UndoManager
 from migration_runner import run_migrations
-from persistence import create_hybrid_persistence_from_env
+from persistence import (
+    SemanticUndoConflict,
+    create_hybrid_persistence_from_env,
+    list_undoable_transactions,
+    undo_transaction,
+)
 
 
 def _resolve_nome(fantasquadra) -> str:
@@ -385,17 +390,21 @@ class MainWindow(QMainWindow):
         self._undo_action.setEnabled(False)
         self._undo_action.triggered.connect(self._perform_undo)
         undo_menu.addAction(self._undo_action)
+
+        semantic_undo_action = QAction("Annulla operazione auditata...", self)
+        semantic_undo_action.triggered.connect(self._perform_semantic_undo)
+        undo_menu.addAction(semantic_undo_action)
         # ─────────────────────────────────────────────────────────────────────
 
-        export_menu = data_menu.addMenu("Export")
+        backup_menu = data_menu.addMenu("Backup")
 
-        export_all_action = QAction("Export All Data...", self)
+        export_all_action = QAction("Backup completo...", self)
         export_all_action.triggered.connect(self.data_manager_ui.export_all)
-        export_menu.addAction(export_all_action)
+        backup_menu.addAction(export_all_action)
 
-        export_table_action = QAction("Export Single Table...", self)
+        export_table_action = QAction("Backup singola tabella...", self)
         export_table_action.triggered.connect(self.data_manager_ui.export_single_table)
-        export_menu.addAction(export_table_action)
+        backup_menu.addAction(export_table_action)
 
         data_menu.addSeparator()
 
@@ -835,6 +844,84 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Errore Undo", "Impossibile annullare:\n" + str(e))
+
+    def _perform_semantic_undo(self):
+        transactions = list_undoable_transactions(SessionLocal)
+        if not transactions:
+            QMessageBox.information(
+                self,
+                "Undo semantico",
+                "Nessuna operazione auditata annullabile.",
+            )
+            return
+
+        labels = []
+        by_label = {}
+        for item in transactions:
+            label = (
+                item.created_at + " | " +
+                item.operation_type + " | op " +
+                str(item.operation_id or "-") + " | " +
+                item.transaction_id[:8]
+            )
+            labels.append(label)
+            by_label[label] = item
+
+        label, ok = QInputDialog.getItem(
+            self,
+            "Undo semantico",
+            "Operazione da annullare:",
+            labels,
+            0,
+            False,
+        )
+        if not ok or not label:
+            return
+
+        item = by_label[label]
+        reply = QMessageBox.question(
+            self,
+            "Conferma undo semantico",
+            "Annullare semanticamente questa operazione?\n\n" + label,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self._close_registered_repos()
+            result = undo_transaction(SessionLocal, item.transaction_id)
+        except SemanticUndoConflict as e:
+            QMessageBox.warning(
+                self,
+                "Undo semantico bloccato",
+                "Operazione non annullata perche' alcuni dati sono cambiati "
+                "dopo la transazione.\n\n" + str(e),
+            )
+            return
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Errore undo semantico",
+                "Impossibile annullare l'operazione:\n" + str(e),
+            )
+            return
+        finally:
+            self._reopen_registered_repos()
+
+        if getattr(self, "hybrid_persistence", None) is not None:
+            if self.hybrid_persistence.sync_mode == "manual":
+                self.hybrid_persistence.push_local_to_remote(reason="semantic_undo")
+
+        self.refresh_all_data()
+        QMessageBox.information(
+            self,
+            "Undo semantico",
+            "Operazione annullata.\n"
+            "Tipo: " + result.operation_type + "\n"
+            "Entita ripristinate: " + str(result.restored_entities),
+        )
 
     def closeEvent(self, event):
         try:

@@ -29,6 +29,24 @@ Next features:
 	- manual CLI/menu push and pull snapshot sync
 	- auto post-commit push mode available with `FANTAMANAGER_SYNC_MODE=auto`
 	- local `sync_state` migration records latest sync status
+- Reliability architecture DECIDED:
+	- single desktop client, no multi-client merge workflow
+	- JSON exports are user-facing backups, UI label changed from Export to Backup
+	- snapshot backups and semantic undo are separate features
+	- semantic undo must reverse one audited transaction/operation, not restore the whole dataset
+	- sync reliability will use local `sync_outbox`, retry state, and `entity_versions`
+	- `semantic_undo_log` will hold before/after snapshots for auditable rollback
+- Semantic undo audit STARTED:
+	- all market operations write before/after rows to `semantic_undo_log`
+	- every market operation type has an explicit inverse action definition
+	- auction-created players are logged as created entities
+	- svincolo-deleted players are logged as deleted entities
+- Semantic undo execution IMPLEMENTED:
+	- inverse actions can be executed from `semantic_undo_log` by transaction id
+	- strict conflict detection blocks undo when touched entities changed later
+	- CLI: `scripts/semantic_undo.py list|undo`
+	- UI: `Modifica > Annulla operazione auditata...`
+	- next step: add a visible rettifica/undo card in storico operazioni
 - P1 architecture refactor STARTED:
 	- service layer `services/mercato_service.py`
 	- command/DTO objects

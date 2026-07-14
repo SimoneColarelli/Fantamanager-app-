@@ -70,7 +70,7 @@ class DataManager:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(export_dict, f, indent=4, ensure_ascii=False)
             
-            return True, "Export successful!"
+            return True, "Backup creato correttamente."
         except Exception as e:
             return False, str(e)
         finally:
@@ -199,7 +199,7 @@ class DataManagerUI:
 
     def export_all(self):
         filename, _ = QFileDialog.getSaveFileName(
-            self.parent, "Export All Data", QDir.homePath(), "JSON Files (*.json)"
+            self.parent, "Crea backup completo", QDir.homePath(), "JSON Files (*.json)"
         )
         if filename:
             success, msg = DataManager.export_data(filename)
@@ -230,14 +230,14 @@ class DataManagerUI:
     def export_single_table(self):
         models = DataManager.get_all_models()
         items = [m.__tablename__ for m in models]
-        item, ok = QInputDialog.getItem(self.parent, "Select Table", "Table to export:", items, 0, False)
+        item, ok = QInputDialog.getItem(self.parent, "Seleziona tabella", "Tabella da salvare in backup:", items, 0, False)
         
         if ok and item:
             # Find the model class
             selected_model = next((m for m in models if m.__tablename__ == item), None)
             if selected_model:
                 filename, _ = QFileDialog.getSaveFileName(
-                    self.parent, f"Export {item}", f"{item}.json", "JSON Files (*.json)"
+                    self.parent, f"Backup {item}", f"{item}.json", "JSON Files (*.json)"
                 )
                 if filename:
                     success, msg = DataManager.export_data(filename, models=[selected_model])

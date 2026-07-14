@@ -12,6 +12,7 @@ from typing import List, Optional
 from sqlalchemy.orm import joinedload
 
 from models import Operazione, Giocatore, Fantasquadra, TIPI_OPERAZIONE
+from persistence.semantic_undo import SemanticUndoBuilder
 
 
 class OperazioneRepository:
@@ -83,6 +84,7 @@ class OperazioneRepository:
 
         session = self.session
         giocatori = session.query(Giocatore).filter(Giocatore.id.in_(giocatore_ids)).all()
+        undo = SemanticUndoBuilder(tipo_operazione)
 
         op = Operazione(
             fantasquadra_a_id=fantasquadra_a_id,
@@ -96,6 +98,9 @@ class OperazioneRepository:
         op.giocatori = giocatori
 
         session.add(op)
+        session.flush()
+        undo.capture_after("operazione", op)
+        undo.write(session, op.id)
         session.commit()
         session.refresh(op)
         return op
@@ -165,6 +170,9 @@ class OperazioneRepository:
         try:
             fq = session.query(Fantasquadra).filter_by(id=fq_id).one()
             giocatori = session.query(Giocatore).filter(Giocatore.id.in_(giocatore_ids)).all()
+            undo = SemanticUndoBuilder("svincolo")
+            undo.capture_before("fantasquadra", fq)
+            undo.capture_before_many("giocatore", giocatori)
 
             total_vs = sum(g.valore_svincolo or 0.0 for g in giocatori)
             fq.fm += int(round(total_vs))
@@ -188,6 +196,9 @@ class OperazioneRepository:
             op.giocatori = giocatori
             session.add(op)
             session.flush()   # assigns op.id and writes M2M rows before deletion
+            undo.capture_after("fantasquadra", fq)
+            undo.capture_after("operazione", op)
+            undo.write(session, op.id)
 
             # Hard-delete players
             for g in giocatori:
@@ -241,6 +252,10 @@ class OperazioneRepository:
             ids_b = [d["id"] for d in giocatori_data_b]
             giocatori_a = session.query(Giocatore).filter(Giocatore.id.in_(ids_a)).all() if ids_a else []
             giocatori_b = session.query(Giocatore).filter(Giocatore.id.in_(ids_b)).all() if ids_b else []
+            undo = SemanticUndoBuilder("scambio prestiti")
+            undo.capture_before("fantasquadra", fq_a)
+            undo.capture_before("fantasquadra", fq_b)
+            undo.capture_before_many("giocatore", giocatori_a + giocatori_b)
 
             fine_map_a = {d["id"]: d["fine_prestito"] for d in giocatori_data_a}
             fine_map_b = {d["id"]: d["fine_prestito"] for d in giocatori_data_b}
@@ -276,6 +291,12 @@ class OperazioneRepository:
             )
             op.giocatori = giocatori_a + giocatori_b
             session.add(op)
+            session.flush()
+            undo.capture_after("fantasquadra", fq_a)
+            undo.capture_after("fantasquadra", fq_b)
+            undo.capture_after_many("giocatore", giocatori_a + giocatori_b)
+            undo.capture_after("operazione", op)
+            undo.write(session, op.id)
             session.commit()
             session.expunge(op)
             return op
@@ -321,6 +342,10 @@ class OperazioneRepository:
             ids = [d["id"] for d in giocatori_data]
             giocatori = session.query(Giocatore).filter(Giocatore.id.in_(ids)).all()
             fine_map = {d["id"]: d["fine_prestito"] for d in giocatori_data}
+            undo = SemanticUndoBuilder("prestito")
+            undo.capture_before("fantasquadra", fq_prestante)
+            undo.capture_before("fantasquadra", fq_ricevente)
+            undo.capture_before_many("giocatore", giocatori)
 
             # Normalise inizio to 1st of month
             inizio_norm = inizio_prestito.replace(day=1)
@@ -347,6 +372,12 @@ class OperazioneRepository:
             )
             op.giocatori = giocatori
             session.add(op)
+            session.flush()
+            undo.capture_after("fantasquadra", fq_prestante)
+            undo.capture_after("fantasquadra", fq_ricevente)
+            undo.capture_after_many("giocatore", giocatori)
+            undo.capture_after("operazione", op)
+            undo.write(session, op.id)
             session.commit()
             session.expunge(op)
             return op
@@ -406,6 +437,10 @@ class OperazioneRepository:
             ids_b = [d["id"] for d in giocatori_data_b]
             giocatori_a = session.query(Giocatore).filter(Giocatore.id.in_(ids_a)).all() if ids_a else []
             giocatori_b = session.query(Giocatore).filter(Giocatore.id.in_(ids_b)).all() if ids_b else []
+            undo = SemanticUndoBuilder("scambio definitivo")
+            undo.capture_before("fantasquadra", fq_a)
+            undo.capture_before("fantasquadra", fq_b)
+            undo.capture_before_many("giocatore", giocatori_a + giocatori_b)
 
             quot_a = {d["id"]: d["quotazione"] for d in giocatori_data_a}
             quot_b = {d["id"]: d["quotazione"] for d in giocatori_data_b}
@@ -480,6 +515,12 @@ class OperazioneRepository:
             )
             op.giocatori = giocatori_a + giocatori_b
             session.add(op)
+            session.flush()
+            undo.capture_after("fantasquadra", fq_a)
+            undo.capture_after("fantasquadra", fq_b)
+            undo.capture_after_many("giocatore", giocatori_a + giocatori_b)
+            undo.capture_after("operazione", op)
+            undo.write(session, op.id)
             session.commit()
             session.expunge(op)
             return op
@@ -554,6 +595,8 @@ class OperazioneRepository:
                         f"Fantasquadra '{fq_nome}' non trovata nel database. "
                         f"Verifica che il nome nel file CSV corrisponda esattamente."
                     )
+                undo = SemanticUndoBuilder("asta")
+                undo.capture_before("fantasquadra", fq)
 
                 new_giocatori: List[Giocatore] = []
                 for row in rows:
@@ -597,6 +640,11 @@ class OperazioneRepository:
                 )
                 op.giocatori = new_giocatori
                 session.add(op)
+                session.flush()
+                undo.capture_after("fantasquadra", fq)
+                undo.capture_after_many("giocatore", new_giocatori)
+                undo.capture_after("operazione", op)
+                undo.write(session, op.id)
                 created_ops.append(op)
 
             session.commit()
@@ -652,6 +700,8 @@ class OperazioneRepository:
         session = self.session_factory()
         try:
             fq = session.query(Fantasquadra).filter_by(id=fq_id).one()
+            undo = SemanticUndoBuilder("asta")
+            undo.capture_before("fantasquadra", fq)
 
             # Normalise the single shared date for all players
             data_norm = (data_asta or datetime.date.today()).replace(day=1)
@@ -728,6 +778,7 @@ class OperazioneRepository:
             op.giocatori = new_giocatori
             session.add(op)
 
+            aumento_op = None
             if estendi_giocatori:
                 aumento_op = Operazione(
                     fantasquadra_a_id  = fq_id,
@@ -741,6 +792,13 @@ class OperazioneRepository:
                 )
                 aumento_op.giocatori = estendi_giocatori
                 session.add(aumento_op)
+            session.flush()
+            undo.capture_after("fantasquadra", fq)
+            undo.capture_after_many("giocatore", new_giocatori)
+            undo.capture_after("operazione", op)
+            if aumento_op is not None:
+                undo.capture_after("operazione", aumento_op)
+            undo.write(session, op.id)
             session.commit()
 
             session.expunge(op)
@@ -822,6 +880,9 @@ class OperazioneRepository:
             giocatori = session.query(Giocatore).filter(
                 Giocatore.id.in_(giocatore_ids)
             ).all()
+            undo = SemanticUndoBuilder("aumento contratto")
+            undo.capture_before("fantasquadra", fq)
+            undo.capture_before_many("giocatore", giocatori)
 
             total_costo = 0
             snapshot_rows = []
@@ -857,6 +918,11 @@ class OperazioneRepository:
             )
             op.giocatori = giocatori
             session.add(op)
+            session.flush()
+            undo.capture_after("fantasquadra", fq)
+            undo.capture_after_many("giocatore", giocatori)
+            undo.capture_after("operazione", op)
+            undo.write(session, op.id)
             session.commit()
             session.expunge(op)
             return op
@@ -933,6 +999,10 @@ class OperazioneRepository:
                 .filter(Giocatore.id.in_(giocatore_ids))
                 .all()
             )
+            undo = SemanticUndoBuilder("acquisto definitivo")
+            undo.capture_before("fantasquadra", fq_venditrice)
+            undo.capture_before("fantasquadra", fq_acquirente)
+            undo.capture_before_many("giocatore", giocatori)
             quot_override = {d["id"]: d["quotazione"] for d in giocatori_data}
 
             # ── Compute total quotazione ─────────────────────────────────
@@ -984,6 +1054,12 @@ class OperazioneRepository:
             )
             op.giocatori = giocatori
             session.add(op)
+            session.flush()
+            undo.capture_after("fantasquadra", fq_venditrice)
+            undo.capture_after("fantasquadra", fq_acquirente)
+            undo.capture_after_many("giocatore", giocatori)
+            undo.capture_after("operazione", op)
+            undo.write(session, op.id)
 
             # ── Single atomic commit ─────────────────────────────────────
             session.commit()
