@@ -62,6 +62,11 @@ Next features:
 		- added nullable `giocatori.prestito_a_fantasquadra_id`
 		- kept legacy text fields `squadra` and `in_prestito_a` for UI compatibility
 		- added SQLite/Supabase migrations and seed export compatibility
+	- complete operation snapshot IMPLEMENTED:
+		- added `operazioni.operation_snapshot`
+		- replaced app usage of legacy `giocatori_snapshot`
+		- every market operation writes a uniform before/after snapshot payload
+		- SQLite/Supabase migrations and seed export updated
 
 In client app:
 - fix simulatore behaviour: when calculating a cessione without contropartite (Team B pays N fm for players of Team A), throw a warning if the amount of FM is less then the sum of valore svincolo of players

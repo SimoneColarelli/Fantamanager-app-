@@ -47,7 +47,7 @@ TABLE_COLUMNS = {
         "conguaglio_da_id",
         "data",
         "clausole",
-        "giocatori_snapshot",
+        "operation_snapshot",
     ),
     "operazione_giocatori": (
         "operazione_id",

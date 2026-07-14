@@ -56,7 +56,7 @@ class SupabaseSeedExporterTests(unittest.TestCase):
                 conguaglio_da_id integer,
                 data date,
                 clausole varchar,
-                giocatori_snapshot text
+                operation_snapshot text
             );
 
             create table operazione_giocatori (
@@ -126,10 +126,13 @@ class SupabaseSeedExporterTests(unittest.TestCase):
                 (
                     id, fantasquadra_a_id, fantasquadra_b_id, tipo_operazione,
                     conguaglio, conguaglio_da_id, data, clausole,
-                    giocatori_snapshot
+                    operation_snapshot
                 )
             values
-                (20, 1, null, 'asta', 0, null, '2026-07-14', null, null)
+                (
+                    20, 1, null, 'asta', 0, null, '2026-07-14', null,
+                    '{"schema_version": 1, "tipo_operazione": "asta"}'
+                )
             """
         )
         self.conn.execute(

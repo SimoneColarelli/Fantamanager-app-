@@ -16,6 +16,7 @@ BOTTOM HALF : storico operazioni
 from __future__ import annotations
 
 import datetime
+import json
 from typing import List, Optional, Dict, cast
 
 from PySide6.QtWidgets import (
@@ -847,6 +848,37 @@ class OperazioneCard(QFrame):
         self.op_id = op.id
         self._build(op)
 
+    def _operation_snapshot(self, op) -> dict:
+        raw = getattr(op, "operation_snapshot", None)
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _snapshot_player_rows(self, snapshot: dict, preferred: str = "after") -> list:
+        rows = []
+        for item in snapshot.get("giocatori", []) or []:
+            if not isinstance(item, dict):
+                continue
+            if not any(key in item for key in ("before", "after", "details")):
+                rows.append(item)
+                continue
+
+            base = item.get(preferred) or item.get("after") or item.get("before") or {}
+            details = item.get("details") or {}
+            if not isinstance(base, dict):
+                base = {}
+            if not isinstance(details, dict):
+                details = {}
+            row = {**base, **details}
+            row.setdefault("id", item.get("id"))
+            row.setdefault("nome", item.get("nome"))
+            rows.append(row)
+        return rows
+
     def _build(self, op):
         badge_fg, badge_bg = TIPO_META.get(op.tipo_operazione, ("#333333", "#eee"))
         tipo = op.tipo_operazione
@@ -913,27 +945,24 @@ class OperazioneCard(QFrame):
         is_acquisto       = (tipo == "acquisto definitivo")
 
         is_asta = (tipo == "asta")
+        operation_snapshot = self._operation_snapshot(op)
 
         if is_svincolo:
             # Players are deleted from DB after svincolo ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â read from snapshot
-            import json as _json
-            snapshot = []
-            if op.giocatori_snapshot:
-                try:
-                    snapshot = _json.loads(op.giocatori_snapshot)
-                except Exception:
-                    pass
-            col = self._svincolo_col(fq_a_name, op.giocatori or snapshot, fm, from_snapshot=not op.giocatori)
+            snapshot_rows = self._snapshot_player_rows(operation_snapshot, preferred="before")
+            col = self._svincolo_col(
+                fq_a_name,
+                snapshot_rows or op.giocatori,
+                fm,
+                from_snapshot=bool(snapshot_rows),
+            )
             br.addWidget(col)
         elif is_asta:
-            col = self._asta_col(fq_a_name, op.giocatori, fm)
+            snapshot_rows = self._snapshot_player_rows(operation_snapshot, preferred="after")
+            col = self._asta_col(fq_a_name, snapshot_rows or op.giocatori, fm)
             br.addWidget(col)
         elif tipo == "aumento contratto":
-            import json as _json
-            try:
-                snap = _json.loads(op.giocatori_snapshot) if op.giocatori_snapshot else []
-            except Exception:
-                snap = []
+            snap = self._snapshot_player_rows(operation_snapshot, preferred="after")
             col = self._aumento_col(fq_a_name, snap, fm)
             br.addWidget(col)
         else:

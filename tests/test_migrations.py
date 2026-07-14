@@ -8,6 +8,9 @@ from migration_runner import run_migrations
 team_refs_migration = importlib.import_module(
     "migrations.005_normalize_giocatore_team_refs"
 )
+operation_snapshot_migration = importlib.import_module(
+    "migrations.006_operation_snapshot"
+)
 
 
 class MigrationRunnerTests(unittest.TestCase):
@@ -55,6 +58,7 @@ class MigrationRunnerTests(unittest.TestCase):
                 "003_reliability_foundations",
                 "004_semantic_undo_inverse_metadata",
                 "005_normalize_giocatore_team_refs",
+                "006_operation_snapshot",
             ]
             self.assertEqual(first, expected_revisions)
             self.assertEqual(second, [])
@@ -67,6 +71,61 @@ class MigrationRunnerTests(unittest.TestCase):
             self.assertIn("operation_type", {row[1] for row in semantic_columns})
             self.assertIn("inverse_action_type", {row[1] for row in semantic_columns})
             self.assertIn("inverse_payload", {row[1] for row in semantic_columns})
+        finally:
+            engine.dispose()
+
+    def test_operation_snapshot_migration_backfills_legacy_player_snapshot(self):
+        engine = create_engine("sqlite:///:memory:")
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE operazioni (
+                            id INTEGER PRIMARY KEY,
+                            fantasquadra_a_id INTEGER NOT NULL,
+                            fantasquadra_b_id INTEGER,
+                            tipo_operazione VARCHAR NOT NULL,
+                            conguaglio INTEGER,
+                            conguaglio_da_id INTEGER,
+                            data DATE,
+                            clausole VARCHAR,
+                            giocatori_snapshot TEXT
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO operazioni (
+                            id, fantasquadra_a_id, fantasquadra_b_id,
+                            tipo_operazione, conguaglio, conguaglio_da_id,
+                            data, clausole, giocatori_snapshot
+                        )
+                        VALUES (
+                            1, 10, NULL, 'svincolo', 0, NULL,
+                            '2026-08-01', '',
+                            '[{"nome": "Released", "valore_svincolo": 75}]'
+                        )
+                        """
+                    )
+                )
+
+                operation_snapshot_migration.upgrade(connection)
+
+                row = connection.execute(
+                    text(
+                        """
+                        SELECT operation_snapshot
+                        FROM operazioni
+                        WHERE id = 1
+                        """
+                    )
+                ).scalar()
+
+            self.assertIn("legacy_migration", row)
+            self.assertIn("Released", row)
         finally:
             engine.dispose()
 

@@ -41,7 +41,7 @@ create table if not exists public.operazioni (
     conguaglio_da_id bigint references public.fantasquadre(id),
     data date,
     clausole text,
-    giocatori_snapshot text
+    operation_snapshot text
 );
 
 create table if not exists public.operazione_giocatori (

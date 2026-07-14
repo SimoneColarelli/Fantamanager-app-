@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import datetime
 import json
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy.orm import joinedload
 
 from models import Operazione, Giocatore, Fantasquadra, TIPI_OPERAZIONE
-from persistence.semantic_undo import SemanticUndoBuilder
+from persistence.semantic_undo import SemanticUndoBuilder, model_snapshot
 
 
 class OperazioneRepository:
@@ -36,6 +36,80 @@ class OperazioneRepository:
         giocatore.prestito_a_fantasquadra_id = None
         giocatore.inizio_prestito = None
         giocatore.fine_prestito = None
+
+    @staticmethod
+    def _snapshot_map(objects) -> dict[int, dict[str, Any]]:
+        return {obj.id: model_snapshot(obj) for obj in objects}
+
+    @staticmethod
+    def _indexed_details(rows: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+        indexed = {}
+        for row in rows:
+            entity_id = row.get("id") or row.get("giocatore_id")
+            if entity_id is not None:
+                indexed[int(entity_id)] = row
+        return indexed
+
+    @staticmethod
+    def _snapshot_json(
+        op: Operazione,
+        *,
+        fq_a_before: Optional[dict[str, Any]] = None,
+        fq_a_after: Optional[dict[str, Any]] = None,
+        fq_b_before: Optional[dict[str, Any]] = None,
+        fq_b_after: Optional[dict[str, Any]] = None,
+        conguaglio_da_before: Optional[dict[str, Any]] = None,
+        conguaglio_da_after: Optional[dict[str, Any]] = None,
+        giocatori_before: Optional[dict[int, dict[str, Any]]] = None,
+        giocatori_after: Optional[dict[int, dict[str, Any]]] = None,
+        giocatori_details: Optional[list[dict[str, Any]]] = None,
+        extra: Optional[dict[str, Any]] = None,
+    ) -> str:
+        before = giocatori_before or {}
+        after = giocatori_after or {}
+        details_by_id = OperazioneRepository._indexed_details(giocatori_details or [])
+        giocatore_ids = sorted(set(before) | set(after) | set(details_by_id))
+
+        giocatori = []
+        for giocatore_id in giocatore_ids:
+            before_snapshot = before.get(giocatore_id)
+            after_snapshot = after.get(giocatore_id)
+            detail = details_by_id.get(giocatore_id)
+            nome = (
+                (after_snapshot or {}).get("nome")
+                or (before_snapshot or {}).get("nome")
+                or (detail or {}).get("nome")
+            )
+            giocatori.append(
+                {
+                    "id": giocatore_id,
+                    "nome": nome,
+                    "before": before_snapshot,
+                    "after": after_snapshot,
+                    "details": detail,
+                }
+            )
+
+        payload = {
+            "schema_version": 1,
+            "operation_id": op.id,
+            "tipo_operazione": op.tipo_operazione,
+            "data": op.data.isoformat() if op.data else None,
+            "clausole": op.clausole or "",
+            "conguaglio": op.conguaglio or 0,
+            "conguaglio_da_id": op.conguaglio_da_id,
+            "fantasquadre": {
+                "a": {"before": fq_a_before, "after": fq_a_after},
+                "b": {"before": fq_b_before, "after": fq_b_after},
+                "conguaglio_da": {
+                    "before": conguaglio_da_before,
+                    "after": conguaglio_da_after,
+                },
+            },
+            "giocatori": giocatori,
+            "extra": extra or {},
+        }
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
     # ------------------------------------------------------------------ #
     #  READ                                                                #
@@ -187,6 +261,8 @@ class OperazioneRepository:
         try:
             fq = session.query(Fantasquadra).filter_by(id=fq_id).one()
             giocatori = session.query(Giocatore).filter(Giocatore.id.in_(giocatore_ids)).all()
+            fq_before = model_snapshot(fq)
+            giocatori_before = self._snapshot_map(giocatori)
             undo = SemanticUndoBuilder("svincolo")
             undo.capture_before("fantasquadra", fq)
             undo.capture_before_many("giocatore", giocatori)
@@ -196,10 +272,15 @@ class OperazioneRepository:
 
             # Record the Operazione first, while players still exist
             data_norm = (data or datetime.date.today()).replace(day=1)
-            snapshot = json.dumps([
-                {"nome": g.nome, "valore_svincolo": g.valore_svincolo, "fine_prestito": None}
+            snapshot_rows = [
+                {
+                    "id": g.id,
+                    "nome": g.nome,
+                    "valore_svincolo": g.valore_svincolo,
+                    "fine_prestito": None,
+                }
                 for g in giocatori
-            ])
+            ]
             op = Operazione(
                 fantasquadra_a_id=fq_id,
                 fantasquadra_b_id=None,
@@ -208,11 +289,19 @@ class OperazioneRepository:
                 conguaglio_da_id=None,
                 data=data_norm,
                 clausole=clausole or "",
-                giocatori_snapshot=snapshot,
             )
             op.giocatori = giocatori
             session.add(op)
             session.flush()   # assigns op.id and writes M2M rows before deletion
+            op.operation_snapshot = self._snapshot_json(
+                op,
+                fq_a_before=fq_before,
+                fq_a_after=model_snapshot(fq),
+                giocatori_before=giocatori_before,
+                giocatori_after={},
+                giocatori_details=snapshot_rows,
+                extra={"valore_svincolo_totale": total_vs},
+            )
             undo.capture_after("fantasquadra", fq)
             undo.capture_after("operazione", op)
             undo.write(session, op.id)
@@ -264,11 +353,14 @@ class OperazioneRepository:
         try:
             fq_a = session.query(Fantasquadra).filter_by(id=fq_a_id).one()
             fq_b = session.query(Fantasquadra).filter_by(id=fq_b_id).one()
+            fq_a_before = model_snapshot(fq_a)
+            fq_b_before = model_snapshot(fq_b)
 
             ids_a = [d["id"] for d in giocatori_data_a]
             ids_b = [d["id"] for d in giocatori_data_b]
             giocatori_a = session.query(Giocatore).filter(Giocatore.id.in_(ids_a)).all() if ids_a else []
             giocatori_b = session.query(Giocatore).filter(Giocatore.id.in_(ids_b)).all() if ids_b else []
+            giocatori_before = self._snapshot_map(giocatori_a + giocatori_b)
             undo = SemanticUndoBuilder("scambio prestiti")
             undo.capture_before("fantasquadra", fq_a)
             undo.capture_before("fantasquadra", fq_b)
@@ -309,6 +401,37 @@ class OperazioneRepository:
             op.giocatori = giocatori_a + giocatori_b
             session.add(op)
             session.flush()
+            op.operation_snapshot = self._snapshot_json(
+                op,
+                fq_a_before=fq_a_before,
+                fq_a_after=model_snapshot(fq_a),
+                fq_b_before=fq_b_before,
+                fq_b_after=model_snapshot(fq_b),
+                conguaglio_da_before=fq_b_before if fm > 0 else None,
+                conguaglio_da_after=model_snapshot(fq_b) if fm > 0 else None,
+                giocatori_before=giocatori_before,
+                giocatori_after=self._snapshot_map(giocatori_a + giocatori_b),
+                giocatori_details=[
+                    {
+                        "id": g.id,
+                        "direzione": "a_to_b",
+                        "fine_prestito": fine_map_a[g.id].isoformat()
+                        if fine_map_a[g.id]
+                        else None,
+                    }
+                    for g in giocatori_a
+                ]
+                + [
+                    {
+                        "id": g.id,
+                        "direzione": "b_to_a",
+                        "fine_prestito": fine_map_b[g.id].isoformat()
+                        if fine_map_b[g.id]
+                        else None,
+                    }
+                    for g in giocatori_b
+                ],
+            )
             undo.capture_after("fantasquadra", fq_a)
             undo.capture_after("fantasquadra", fq_b)
             undo.capture_after_many("giocatore", giocatori_a + giocatori_b)
@@ -355,9 +478,12 @@ class OperazioneRepository:
         try:
             fq_prestante = session.query(Fantasquadra).filter_by(id=fq_prestante_id).one()
             fq_ricevente = session.query(Fantasquadra).filter_by(id=fq_ricevente_id).one()
+            fq_prestante_before = model_snapshot(fq_prestante)
+            fq_ricevente_before = model_snapshot(fq_ricevente)
 
             ids = [d["id"] for d in giocatori_data]
             giocatori = session.query(Giocatore).filter(Giocatore.id.in_(ids)).all()
+            giocatori_before = self._snapshot_map(giocatori)
             fine_map = {d["id"]: d["fine_prestito"] for d in giocatori_data}
             undo = SemanticUndoBuilder("prestito")
             undo.capture_before("fantasquadra", fq_prestante)
@@ -390,6 +516,26 @@ class OperazioneRepository:
             op.giocatori = giocatori
             session.add(op)
             session.flush()
+            op.operation_snapshot = self._snapshot_json(
+                op,
+                fq_a_before=fq_prestante_before,
+                fq_a_after=model_snapshot(fq_prestante),
+                fq_b_before=fq_ricevente_before,
+                fq_b_after=model_snapshot(fq_ricevente),
+                conguaglio_da_before=fq_ricevente_before if fm > 0 else None,
+                conguaglio_da_after=model_snapshot(fq_ricevente) if fm > 0 else None,
+                giocatori_before=giocatori_before,
+                giocatori_after=self._snapshot_map(giocatori),
+                giocatori_details=[
+                    {
+                        "id": g.id,
+                        "fine_prestito": fine_map[g.id].isoformat()
+                        if fine_map[g.id]
+                        else None,
+                    }
+                    for g in giocatori
+                ],
+            )
             undo.capture_after("fantasquadra", fq_prestante)
             undo.capture_after("fantasquadra", fq_ricevente)
             undo.capture_after_many("giocatore", giocatori)
@@ -449,11 +595,14 @@ class OperazioneRepository:
         try:
             fq_a = session.query(Fantasquadra).filter_by(id=fq_a_id).one()
             fq_b = session.query(Fantasquadra).filter_by(id=fq_b_id).one()
+            fq_a_before = model_snapshot(fq_a)
+            fq_b_before = model_snapshot(fq_b)
 
             ids_a = [d["id"] for d in giocatori_data_a]
             ids_b = [d["id"] for d in giocatori_data_b]
             giocatori_a = session.query(Giocatore).filter(Giocatore.id.in_(ids_a)).all() if ids_a else []
             giocatori_b = session.query(Giocatore).filter(Giocatore.id.in_(ids_b)).all() if ids_b else []
+            giocatori_before = self._snapshot_map(giocatori_a + giocatori_b)
             undo = SemanticUndoBuilder("scambio definitivo")
             undo.capture_before("fantasquadra", fq_a)
             undo.capture_before("fantasquadra", fq_b)
@@ -535,6 +684,38 @@ class OperazioneRepository:
             op.giocatori = giocatori_a + giocatori_b
             session.add(op)
             session.flush()
+            op.operation_snapshot = self._snapshot_json(
+                op,
+                fq_a_before=fq_a_before,
+                fq_a_after=model_snapshot(fq_a),
+                fq_b_before=fq_b_before,
+                fq_b_after=model_snapshot(fq_b),
+                conguaglio_da_before=fq_b_before if fm > 0 else None,
+                conguaglio_da_after=model_snapshot(fq_b) if fm > 0 else None,
+                giocatori_before=giocatori_before,
+                giocatori_after=self._snapshot_map(giocatori_a + giocatori_b),
+                giocatori_details=[
+                    {
+                        "id": g.id,
+                        "direzione": "a_to_b",
+                        "quotazione_usata": quot_a[g.id],
+                    }
+                    for g in giocatori_a
+                ]
+                + [
+                    {
+                        "id": g.id,
+                        "direzione": "b_to_a",
+                        "quotazione_usata": quot_b[g.id],
+                    }
+                    for g in giocatori_b
+                ],
+                extra={
+                    "amount_a": amount_A,
+                    "amount_b": amount_B,
+                    "scadenza_contratto": scadenza.isoformat(),
+                },
+            )
             undo.capture_after("fantasquadra", fq_a)
             undo.capture_after("fantasquadra", fq_b)
             undo.capture_after_many("giocatore", giocatori_a + giocatori_b)
@@ -614,6 +795,7 @@ class OperazioneRepository:
                         f"Fantasquadra '{fq_nome}' non trovata nel database. "
                         f"Verifica che il nome nel file CSV corrisponda esattamente."
                     )
+                fq_before = model_snapshot(fq)
                 undo = SemanticUndoBuilder("asta")
                 undo.capture_before("fantasquadra", fq)
 
@@ -662,6 +844,24 @@ class OperazioneRepository:
                 op.giocatori = new_giocatori
                 session.add(op)
                 session.flush()
+                op.operation_snapshot = self._snapshot_json(
+                    op,
+                    fq_a_before=fq_before,
+                    fq_a_after=model_snapshot(fq),
+                    conguaglio_da_before=fq_before,
+                    conguaglio_da_after=model_snapshot(fq),
+                    giocatori_before={},
+                    giocatori_after=self._snapshot_map(new_giocatori),
+                    giocatori_details=[
+                        {
+                            "id": g.id,
+                            "quotazione_usata": g.quotazione,
+                            "spesa": g.spesa,
+                        }
+                        for g in new_giocatori
+                    ],
+                    extra={"scadenza_contratto": scadenza.isoformat()},
+                )
                 undo.capture_after("fantasquadra", fq)
                 undo.capture_after_many("giocatore", new_giocatori)
                 undo.capture_after("operazione", op)
@@ -721,6 +921,7 @@ class OperazioneRepository:
         session = self.session_factory()
         try:
             fq = session.query(Fantasquadra).filter_by(id=fq_id).one()
+            fq_before = model_snapshot(fq)
             undo = SemanticUndoBuilder("asta")
             undo.capture_before("fantasquadra", fq)
 
@@ -765,6 +966,7 @@ class OperazioneRepository:
 
             # Flush to get PKs before linking to Operazione
             session.flush()
+            asta_giocatori_after = self._snapshot_map(new_giocatori)
 
             aumento_total = 0
             aumento_snapshot = []
@@ -772,6 +974,7 @@ class OperazioneRepository:
                 costo, anni_extra, nuova_scadenza = self.calcola_costo_aumento(g)
                 aumento_total += costo
                 aumento_snapshot.append({
+                    "id":             g.id,
                     "nome":           g.nome,
                     "costo":          costo,
                     "nuova_scadenza": nuova_scadenza.isoformat(),
@@ -811,11 +1014,46 @@ class OperazioneRepository:
                     conguaglio_da_id   = fq_id,
                     data               = data_norm,
                     clausole           = "Aumento contratto contestuale ad asta",
-                    giocatori_snapshot = json.dumps(aumento_snapshot),
                 )
                 aumento_op.giocatori = estendi_giocatori
                 session.add(aumento_op)
             session.flush()
+            fq_after = model_snapshot(fq)
+            op.operation_snapshot = self._snapshot_json(
+                op,
+                fq_a_before=fq_before,
+                fq_a_after=fq_after,
+                conguaglio_da_before=fq_before,
+                conguaglio_da_after=fq_after,
+                giocatori_before={},
+                giocatori_after=asta_giocatori_after,
+                giocatori_details=[
+                    {
+                        "id": g.id,
+                        "quotazione_usata": g.quotazione,
+                        "spesa": g.spesa,
+                    }
+                    for g in new_giocatori
+                ],
+                extra={
+                    "scadenza_contratto": scadenza.isoformat(),
+                    "aumento_contestuale_totale": aumento_total,
+                },
+            )
+            if aumento_op is not None:
+                aumento_op.operation_snapshot = self._snapshot_json(
+                    aumento_op,
+                    fq_a_before=fq_before,
+                    fq_a_after=fq_after,
+                    conguaglio_da_before=fq_before,
+                    conguaglio_da_after=fq_after,
+                    giocatori_before={
+                        g.id: asta_giocatori_after[g.id] for g in estendi_giocatori
+                    },
+                    giocatori_after=self._snapshot_map(estendi_giocatori),
+                    giocatori_details=aumento_snapshot,
+                    extra={"contestuale_ad_asta_operation_id": op.id},
+                )
             undo.capture_after("fantasquadra", fq)
             undo.capture_after_many("giocatore", new_giocatori)
             undo.capture_after("operazione", op)
@@ -903,6 +1141,8 @@ class OperazioneRepository:
             giocatori = session.query(Giocatore).filter(
                 Giocatore.id.in_(giocatore_ids)
             ).all()
+            fq_before = model_snapshot(fq)
+            giocatori_before = self._snapshot_map(giocatori)
             undo = SemanticUndoBuilder("aumento contratto")
             undo.capture_before("fantasquadra", fq)
             undo.capture_before_many("giocatore", giocatori)
@@ -914,6 +1154,7 @@ class OperazioneRepository:
                 costo, anni_extra, nuova_scadenza = self.calcola_costo_aumento(g)
                 total_costo += costo
                 snapshot_rows.append({
+                    "id":             g.id,
                     "nome":           g.nome,
                     "costo":          costo,
                     "nuova_scadenza": nuova_scadenza.isoformat(),
@@ -937,11 +1178,20 @@ class OperazioneRepository:
                 conguaglio_da_id   = fq_id,
                 data               = datetime.date.today().replace(day=1),
                 clausole           = "",
-                giocatori_snapshot = json.dumps(snapshot_rows),
             )
             op.giocatori = giocatori
             session.add(op)
             session.flush()
+            op.operation_snapshot = self._snapshot_json(
+                op,
+                fq_a_before=fq_before,
+                fq_a_after=model_snapshot(fq),
+                conguaglio_da_before=fq_before,
+                conguaglio_da_after=model_snapshot(fq),
+                giocatori_before=giocatori_before,
+                giocatori_after=self._snapshot_map(giocatori),
+                giocatori_details=snapshot_rows,
+            )
             undo.capture_after("fantasquadra", fq)
             undo.capture_after_many("giocatore", giocatori)
             undo.capture_after("operazione", op)
@@ -1015,6 +1265,8 @@ class OperazioneRepository:
             # ── Resolve objects ──────────────────────────────────────────
             fq_venditrice = session.query(Fantasquadra).filter_by(id=fq_venditrice_id).one()
             fq_acquirente = session.query(Fantasquadra).filter_by(id=fq_acquirente_id).one()
+            fq_venditrice_before = model_snapshot(fq_venditrice)
+            fq_acquirente_before = model_snapshot(fq_acquirente)
 
             giocatore_ids = [d["id"] for d in giocatori_data]
             giocatori = (
@@ -1022,6 +1274,7 @@ class OperazioneRepository:
                 .filter(Giocatore.id.in_(giocatore_ids))
                 .all()
             )
+            giocatori_before = self._snapshot_map(giocatori)
             undo = SemanticUndoBuilder("acquisto definitivo")
             undo.capture_before("fantasquadra", fq_venditrice)
             undo.capture_before("fantasquadra", fq_acquirente)
@@ -1079,6 +1332,25 @@ class OperazioneRepository:
             op.giocatori = giocatori
             session.add(op)
             session.flush()
+            op.operation_snapshot = self._snapshot_json(
+                op,
+                fq_a_before=fq_venditrice_before,
+                fq_a_after=model_snapshot(fq_venditrice),
+                fq_b_before=fq_acquirente_before,
+                fq_b_after=model_snapshot(fq_acquirente),
+                conguaglio_da_before=fq_acquirente_before,
+                conguaglio_da_after=model_snapshot(fq_acquirente),
+                giocatori_before=giocatori_before,
+                giocatori_after=self._snapshot_map(giocatori),
+                giocatori_details=[
+                    {
+                        "id": g.id,
+                        "quotazione_usata": quot_override[g.id],
+                    }
+                    for g in giocatori
+                ],
+                extra={"scadenza_contratto": scadenza.isoformat()},
+            )
             undo.capture_after("fantasquadra", fq_venditrice)
             undo.capture_after("fantasquadra", fq_acquirente)
             undo.capture_after_many("giocatore", giocatori)

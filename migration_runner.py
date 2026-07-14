@@ -12,6 +12,7 @@ MIGRATIONS = (
     "migrations.003_reliability_foundations",
     "migrations.004_semantic_undo_inverse_metadata",
     "migrations.005_normalize_giocatore_team_refs",
+    "migrations.006_operation_snapshot",
 )
 
 

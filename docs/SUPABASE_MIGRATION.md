@@ -39,6 +39,10 @@ verso Supabase in modalita manuale o automatica.
   - aggiunge `entity_versions` su Supabase;
   - aggiunge `semantic_undo_log` su Supabase per recovery remota dell'audit;
   - lascia `sync_outbox` solo locale, perche' e' una coda retry del client.
+- `supabase/migrations/20260714000500_operation_snapshot.sql`
+  - aggiunge `operazioni.operation_snapshot`;
+  - migra eventuali dati legacy da `giocatori_snapshot`;
+  - il codice applicativo non scrive piu' `giocatori_snapshot`.
 - `scripts/export_sqlite_to_supabase_seed.py`
   - genera `supabase/seed.sql` da `fantamanager.db`;
   - conserva gli ID originali;
@@ -75,6 +79,10 @@ verso Supabase in modalita manuale o automatica.
    Deve inoltre avere la migration
    `20260714000400_reliability_audit_tables.sql`, perche' lo snapshot runtime
    include anche `entity_versions` e `semantic_undo_log`.
+
+   Infine deve avere la migration
+   `20260714000500_operation_snapshot.sql`, perche' lo snapshot runtime e il
+   seed ora usano `operazioni.operation_snapshot`.
 
 3. Caricare i dati iniziali.
 

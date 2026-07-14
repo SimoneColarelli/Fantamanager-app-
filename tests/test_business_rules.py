@@ -1,4 +1,5 @@
 import datetime
+import json
 import unittest
 from types import SimpleNamespace
 
@@ -201,7 +202,9 @@ class BusinessRuleTests(unittest.TestCase):
 
             self.assertEqual(team.fm, 175)
             self.assertEqual(player_count, 0)
-            self.assertIn("Released", op.giocatori_snapshot)
+            snapshot = json.loads(op.operation_snapshot)
+            self.assertEqual(snapshot["tipo_operazione"], "svincolo")
+            self.assertIn("Released", op.operation_snapshot)
         finally:
             session.close()
 
