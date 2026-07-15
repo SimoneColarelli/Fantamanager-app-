@@ -17,7 +17,9 @@ from table_with_edit_buttons import TableWithEditButtons
 from data_manager import DataManagerUI
 from operazione_repository import OperazioneRepository
 from mercato_widget import MercatoWidget
+from services.dashboard_service import DashboardService
 from undo_manager import UndoManager
+from widgets.dashboard_widget import DashboardWidget
 from migration_runner import run_migrations
 from persistence import (
     SemanticUndoConflict,
@@ -426,23 +428,34 @@ class MainWindow(QMainWindow):
         self.op_repo = OperazioneRepository(SessionLocal)
         self.mercato_widget = MercatoWidget(self.op_repo)
 
+        # ========== DASHBOARD TAB ==========
+        self.dashboard_widget = DashboardWidget(DashboardService(SessionLocal))
+
         # When giocatori or fantasquadre change, keep mercato combos in sync
         self.g_model.rows_committed.connect(self.mercato_widget.refresh_combos)
         self.f_model.rows_committed.connect(self.mercato_widget.refresh_combos)
         self.g_deleted_widget.items_restored.connect(self.mercato_widget.refresh_combos)
         self.f_deleted_widget.items_restored.connect(self.mercato_widget.refresh_combos)
+        self.g_model.rows_committed.connect(self.dashboard_widget.refresh)
+        self.f_model.rows_committed.connect(self.dashboard_widget.refresh)
+        self.g_view.item_deleted.connect(self.dashboard_widget.refresh)
+        self.f_view.item_deleted.connect(self.dashboard_widget.refresh)
+        self.g_deleted_widget.items_restored.connect(self.dashboard_widget.refresh)
+        self.f_deleted_widget.items_restored.connect(self.dashboard_widget.refresh)
 
         # When a cessione is committed, refresh giocatori + fantasquadre tables
         self.mercato_widget.operazione_committed.connect(self.g_model.refresh)
         self.mercato_widget.operazione_committed.connect(self.f_model.refresh)
         self.mercato_widget.operazione_committed.connect(self.update_squadra_combo)
         self.mercato_widget.operazione_committed.connect(self.mercato_widget.refresh_combos)
+        self.mercato_widget.operazione_committed.connect(self.dashboard_widget.refresh)
 
         # Give mercato_widget access to the persistent repo sessions so it can
         # expire them (release SQLite read locks) before each write operation.
         self.mercato_widget.sibling_repos = [g_repo, f_repo]
 
         # ========== ADD TABS ==========
+        self.tabs.addTab(self.dashboard_widget, "Dashboard")
         self.tabs.addTab(g_splitter, "Giocatori")
         self.tabs.addTab(f_splitter, "Fantasquadre")
         self.tabs.addTab(self.mercato_widget, "⚽ Mercato")
@@ -483,6 +496,8 @@ class MainWindow(QMainWindow):
         self.update_squadra_combo()
         self.mercato_widget.refresh_combos()
         self.mercato_widget._refresh_history()
+        if hasattr(self, "dashboard_widget"):
+            self.dashboard_widget.refresh()
         # Keep undo action in sync
         if hasattr(self, "_undo_mgr"):
             self._update_undo_action()
