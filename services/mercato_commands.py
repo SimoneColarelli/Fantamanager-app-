@@ -81,6 +81,16 @@ class SvincoloCommand:
 
 
 @dataclass(frozen=True)
+class SvincoloFineContrattoCommand:
+    stagione_id: int
+    stagione_codice: str
+    anno_fine: int
+    mese_regolamento: int
+    clausole: Optional[str] = None
+    sessions_to_expire: Optional[List] = None
+
+
+@dataclass(frozen=True)
 class ImportaAstaCommand:
     asta_data: List[dict]
     data_asta: datetime.date

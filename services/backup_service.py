@@ -9,7 +9,7 @@ from typing import Iterable
 from sqlalchemy import inspect, text
 
 from database import Base
-from models import StagioneFase, StagioneFile, operazione_giocatori
+from models import Fantasquadra, Giocatore, StagioneFase, StagioneFile, operazione_giocatori
 from services.stagione_service import PHASE_DEFINITIONS, StagioneDTO
 
 
@@ -182,6 +182,41 @@ class BackupService:
             paths=[path for _, path in created_files],
         )
 
+    def export_rosters_for_asta(
+        self,
+        stagione: StagioneDTO,
+        phase_code: str,
+    ) -> BackupResult:
+        label = (
+            "Rose per asta estiva"
+            if phase_code == "fase_1_estiva"
+            else "Rose per asta invernale"
+        )
+        phase_folder = self._phase_folder(phase_code)
+        asta_dir = Path(stagione.storage_path) / phase_folder / "asta"
+        asta_dir.mkdir(parents=True, exist_ok=True)
+        season_suffix = stagione.codice.replace("/", "-").replace("\\", "-")
+        filepath = asta_dir / f"{label} {season_suffix}.json"
+
+        payload = self._rosters_payload(stagione, phase_code)
+        filepath.write_text(
+            json.dumps(payload, indent=4, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        self._record_file(
+            stagione=stagione,
+            phase_code=phase_code,
+            tipo_file="export_asta",
+            nome_logico=f"{label} {stagione.codice}",
+            path=filepath,
+            note="export_rosters_for_asta",
+        )
+        return BackupResult(
+            ok=True,
+            message=f"{label} esportate correttamente.",
+            paths=[filepath],
+        )
+
     def _read_table(self, session, table_name: str) -> list[dict]:
         if table_name == operazione_giocatori.name:
             rows = session.execute(
@@ -204,6 +239,60 @@ class BackupService:
             for definition in PHASE_DEFINITIONS
             if definition.codice == phase_code
         )
+
+    def _rosters_payload(self, stagione: StagioneDTO, phase_code: str) -> dict:
+        session = self.session_factory()
+        try:
+            teams = (
+                session.query(Fantasquadra)
+                .filter(Fantasquadra.deleted.is_(False))
+                .order_by(Fantasquadra.nome)
+                .all()
+            )
+            payload_teams = []
+            for team in teams:
+                players = (
+                    session.query(Giocatore)
+                    .filter(
+                        Giocatore.deleted.is_(False),
+                        Giocatore.fantasquadra_id == team.id,
+                    )
+                    .order_by(Giocatore.nome)
+                    .all()
+                )
+                payload_teams.append(
+                    {
+                        "id": team.id,
+                        "nome": team.nome,
+                        "fm": team.fm,
+                        "giocatori": [
+                            {
+                                "id": player.id,
+                                "nome": player.nome,
+                                "squadra": player.squadra,
+                                "quotazione": player.quotazione,
+                                "valore_svincolo": player.valore_svincolo,
+                                "scadenza_contratto": player.scadenza_contratto.isoformat()
+                                if player.scadenza_contratto
+                                else None,
+                                "in_prestito_a": player.in_prestito_a,
+                                "convocato": player.convocato,
+                                "in_serie_a": player.in_serie_a,
+                            }
+                            for player in players
+                        ],
+                    }
+                )
+            return {
+                "schema_version": 1,
+                "tipo": "export_rosters_for_asta",
+                "stagione": stagione.codice,
+                "fase": phase_code,
+                "generated_at": dt.datetime.now().isoformat(),
+                "squadre": payload_teams,
+            }
+        finally:
+            session.close()
 
     def _record_season_files(
         self,
@@ -234,6 +323,43 @@ class BackupService:
                         note=definition.key,
                     )
                 )
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def _record_file(
+        self,
+        stagione: StagioneDTO,
+        phase_code: str,
+        tipo_file: str,
+        nome_logico: str,
+        path: Path,
+        note: str | None = None,
+    ) -> None:
+        session = self.session_factory()
+        try:
+            fase = (
+                session.query(StagioneFase)
+                .filter(
+                    StagioneFase.stagione_id == stagione.id,
+                    StagioneFase.codice_fase == phase_code,
+                )
+                .one_or_none()
+            )
+            session.add(
+                StagioneFile(
+                    stagione_id=stagione.id,
+                    fase_id=fase.id if fase else None,
+                    tipo_file=tipo_file,
+                    nome_logico=nome_logico,
+                    path=str(path),
+                    created_at=dt.datetime.now(),
+                    note=note,
+                )
+            )
             session.commit()
         except Exception:
             session.rollback()

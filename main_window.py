@@ -431,18 +431,24 @@ class MainWindow(QMainWindow):
 
         # ========== MERCATO TAB ==========
         self.op_repo = OperazioneRepository(SessionLocal)
-        self.mercato_widget = MercatoWidget(self.op_repo)
+        self.stagione_service = StagioneService(SessionLocal)
+        self.mercato_widget = MercatoWidget(
+            self.op_repo,
+            stagione_service=self.stagione_service,
+        )
 
         # ========== DASHBOARD TAB ==========
         self.dashboard_widget = DashboardWidget(DashboardService(SessionLocal))
 
         # ========== STAGIONI TAB ==========
         self.stagioni_widget = StagioniWidget(
-            StagioneService(SessionLocal),
+            self.stagione_service,
             BackupService(SessionLocal),
             quotazioni_service=self.quotazioni_service,
+            mercato_service=self.mercato_widget.service,
             quotazioni_provider=lambda: self.quotazioni_data,
             refresh_callback=self._refresh_after_service_write,
+            show_mercato_callback=lambda: self.tabs.setCurrentWidget(self.mercato_widget),
         )
 
         # When giocatori or fantasquadre change, keep mercato combos in sync

@@ -14,6 +14,12 @@ operation_snapshot_migration = importlib.import_module(
 integer_values_migration = importlib.import_module(
     "migrations.007_integer_economic_values"
 )
+operation_context_migration = importlib.import_module(
+    "migrations.009_operation_season_context"
+)
+june_expiry_migration = importlib.import_module(
+    "migrations.010_june_contract_expiry"
+)
 
 
 class MigrationRunnerTests(unittest.TestCase):
@@ -64,6 +70,8 @@ class MigrationRunnerTests(unittest.TestCase):
                 "006_operation_snapshot",
                 "007_integer_economic_values",
                 "008_stagioni",
+                "009_operation_season_context",
+                "010_june_contract_expiry",
             ]
             self.assertEqual(first, expected_revisions)
             self.assertEqual(second, [])
@@ -103,6 +111,142 @@ class MigrationRunnerTests(unittest.TestCase):
                     "stagioni",
                 ],
             )
+        finally:
+            engine.dispose()
+
+    def test_operation_context_migration_adds_context_columns(self):
+        engine = create_engine("sqlite:///:memory:")
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE operazioni (
+                            id INTEGER PRIMARY KEY,
+                            fantasquadra_a_id INTEGER NOT NULL,
+                            tipo_operazione VARCHAR NOT NULL
+                        )
+                        """
+                    )
+                )
+
+                operation_context_migration.upgrade(connection)
+
+                operation_columns = {
+                    row[1]
+                    for row in connection.execute(
+                        text("PRAGMA table_info(operazioni)")
+                    ).fetchall()
+                }
+
+            self.assertIn("stagione_id", operation_columns)
+            self.assertIn("fase_stagione", operation_columns)
+            self.assertIn("periodo_regolamento", operation_columns)
+            self.assertIn("mese_regolamento", operation_columns)
+        finally:
+            engine.dispose()
+
+    def test_june_contract_expiry_migration_moves_july_first_dates(self):
+        engine = create_engine("sqlite:///:memory:")
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE giocatori (
+                            id INTEGER PRIMARY KEY,
+                            scadenza_contratto DATE,
+                            fine_prestito DATE
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE operazioni (
+                            id INTEGER PRIMARY KEY,
+                            operation_snapshot TEXT
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE semantic_undo_log (
+                            id INTEGER PRIMARY KEY,
+                            before_snapshot TEXT,
+                            after_snapshot TEXT,
+                            inverse_payload TEXT
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO giocatori (
+                            id, scadenza_contratto, fine_prestito
+                        )
+                        VALUES (1, '2028-07-01', '2027-07-01')
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO operazioni (id, operation_snapshot)
+                        VALUES (1, '{"scadenza_contratto": "2028-07-01"}')
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO semantic_undo_log (
+                            id, before_snapshot, after_snapshot, inverse_payload
+                        )
+                        VALUES (
+                            1,
+                            '{"scadenza_contratto": "2028-07-01"}',
+                            '{"fine_prestito": "2027-07-01"}',
+                            '{"operation_date": "2028-07-01"}'
+                        )
+                        """
+                    )
+                )
+
+                june_expiry_migration.upgrade(connection)
+
+                player_row = connection.execute(
+                    text(
+                        """
+                        SELECT scadenza_contratto, fine_prestito
+                        FROM giocatori
+                        WHERE id = 1
+                        """
+                    )
+                ).fetchone()
+                snapshot = connection.execute(
+                    text("SELECT operation_snapshot FROM operazioni WHERE id = 1")
+                ).scalar()
+                undo_row = connection.execute(
+                    text(
+                        """
+                        SELECT before_snapshot, after_snapshot, inverse_payload
+                        FROM semantic_undo_log
+                        WHERE id = 1
+                        """
+                    )
+                ).fetchone()
+
+            self.assertEqual(player_row[0], "2028-06-30")
+            self.assertEqual(player_row[1], "2027-06-30")
+            self.assertIn("2028-06-30", snapshot)
+            self.assertIn("2028-06-30", undo_row[0])
+            self.assertIn("2027-06-30", undo_row[1])
+            self.assertIn("2028-06-30", undo_row[2])
         finally:
             engine.dispose()
 

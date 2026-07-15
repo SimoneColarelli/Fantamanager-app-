@@ -87,6 +87,16 @@ class OperazioneCard(QFrame):
             dl.setStyleSheet(f"color: {badge_fg}99; font-size: 10px; background: transparent;")
             sr.addWidget(dl)
 
+        if getattr(op, "periodo_regolamento", None):
+            context_text = op.periodo_regolamento
+            if getattr(op, "mese_regolamento", None):
+                context_text += f" - {op.mese_regolamento}"
+            context_lbl = QLabel(context_text)
+            context_lbl.setStyleSheet(
+                f"color: {badge_fg}; font-size: 10px; background: transparent;"
+            )
+            sr.addWidget(context_lbl)
+
         db = QPushButton("X")
         db.setFixedSize(20, 20)
         db.setStyleSheet(f"""
@@ -111,6 +121,7 @@ class OperazioneCard(QFrame):
         payer_id  = op.conguaglio_da_id
 
         is_svincolo       = (tipo == "svincolo")
+        is_svincolo_fine  = (tipo == "svincolo fine contratto")
         is_prestito       = (tipo in ("prestito", "scambio prestiti"))
         is_scambio        = (tipo in ("scambio definitivo", "scambio prestiti"))
         is_acquisto       = (tipo == "acquisto definitivo")
@@ -126,6 +137,13 @@ class OperazioneCard(QFrame):
                 snapshot_rows or op.giocatori,
                 fm,
                 from_snapshot=bool(snapshot_rows),
+            )
+            br.addWidget(col)
+        elif is_svincolo_fine:
+            snapshot_rows = self._snapshot_player_rows(operation_snapshot, preferred="before")
+            col = self._svincolo_fine_contratto_col(
+                fq_a_name,
+                snapshot_rows or op.giocatori,
             )
             br.addWidget(col)
         elif is_asta:
@@ -357,6 +375,61 @@ class OperazioneCard(QFrame):
 
         v.addStretch()
         return w
+
+    def _svincolo_fine_contratto_col(self, fq_name: str, giocatori) -> QWidget:
+        """Single-column layout for end-season expired contract releases."""
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(3)
+
+        v.addWidget(self._lbl(fq_name, bold=True, size=11, color=NAVY))
+
+        for g in giocatori:
+            if isinstance(g, dict):
+                nome = g.get("nome", "-")
+                scadenza = g.get("scadenza_contratto")
+            else:
+                nome = g.nome
+                scadenza = (
+                    g.scadenza_contratto.isoformat()
+                    if g.scadenza_contratto
+                    else None
+                )
+            scadenza_text = self._format_iso_month(scadenza) if scadenza else "-"
+            row_lbl = QLabel(
+                f"<span style='font-size:10pt; font-weight:bold; color:#1a1a1a;'>{nome}</span>"
+                f"  <span style='font-size:9pt; color:{MUTED};'>scad. {scadenza_text}</span>"
+            )
+            row_lbl.setTextFormat(Qt.TextFormat.RichText)
+            row_lbl.setStyleSheet("background: transparent;")
+            v.addWidget(row_lbl)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet(f"color: {BORDER};")
+        v.addWidget(sep)
+
+        total_lbl = QLabel("Nessun accredito FM")
+        f = total_lbl.font(); f.setBold(True); f.setPointSize(11)
+        total_lbl.setFont(f)
+        total_lbl.setStyleSheet(f"background: transparent; color: {MUTED};")
+        v.addWidget(total_lbl)
+
+        v.addStretch()
+        return w
+
+    @staticmethod
+    def _format_iso_month(value: str) -> str:
+        try:
+            import datetime as _dt
+            d = _dt.date.fromisoformat(value)
+        except Exception:
+            return value
+        months = ["gen","feb","mar","apr","mag","giu",
+                  "lug","ago","set","ott","nov","dic"]
+        return f"{months[d.month - 1]}-{str(d.year)[2:]}"
 
 
     def _asta_col(self, fq_name: str, giocatori, total_fm: int) -> QWidget:

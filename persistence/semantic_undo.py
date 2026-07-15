@@ -46,6 +46,13 @@ INVERSE_OPERATION_DEFINITIONS = {
             "team FM balance."
         ),
     },
+    "svincolo fine contratto": {
+        "inverse_action_type": "undo_svincolo_fine_contratto",
+        "description": (
+            "Recreate players released at contract expiry without changing "
+            "the team FM balance."
+        ),
+    },
     "asta": {
         "inverse_action_type": "undo_asta",
         "description": (

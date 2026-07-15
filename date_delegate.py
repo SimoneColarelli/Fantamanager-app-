@@ -82,21 +82,18 @@ class ScadenzaContrattoDelegate(QStyledItemDelegate):
         editor = QComboBox(parent)
         editor.setEditable(True)
         
-        # Determine choices based on Data acquisto
-
-
         if data_acquisto in [f"gen-{cy}", f"feb-{cy}"]:
-            choices = [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}", value] if value and value != "" and index.row() > 0 else [f"lug-{cy_int + 2:02d}", f"lug-{cy_int + 3:02d}"]
+            choices = [f"giu-{cy_int + 2:02d}", f"giu-{cy_int + 3:02d}", value] if value and value != "" and index.row() > 0 else [f"giu-{cy_int + 2:02d}", f"giu-{cy_int + 3:02d}"]
             if value and value != "":
                 default = value
             else:
-                default = choices[0]  # lug-(cy+2)
+                default = choices[0]  # giu-(cy+2)
         else:
-            choices = [f"lug-{cy_int + 3:02d}", f"lug-{cy_int + 4:02d}", value] if value and value != "" else [f"lug-{cy_int + 3:02d}", f"lug-{cy_int + 4:02d}"]
+            choices = [f"giu-{cy_int + 3:02d}", f"giu-{cy_int + 4:02d}", value] if value and value != "" else [f"giu-{cy_int + 3:02d}", f"giu-{cy_int + 4:02d}"]
             if value and value != "":
                 default = value
             else:
-                default = choices[0]  # lug-(cy+3)
+                default = choices[0]  # giu-(cy+3)
         
         for choice in choices:
             editor.addItem(choice)
@@ -189,26 +186,28 @@ class FinePrestitoDelegate(QStyledItemDelegate):
         
         editor = QComboBox(parent)
         editor.setEditable(True)
+        end_month = "giu" if cm == "lug" else cm
         
-        # Choices: gen-(cy+1), lug-(cy+1), lug-(cy+2), lug-cy, cm-(cy+1), cm-(cy+2)
+        # Choices: gen-(cy+1), giu-(cy+1), giu-(cy+2), giu-cy, cm-(cy+1), cm-(cy+2)
         choices = [
             f"gen-{cy_int + 1:02d}",
-            f"lug-{cy_int + 1:02d}",
-            f"lug-{cy_int + 2:02d}",
-            f"lug-{cy}",
-            f"{cm}-{cy_int + 1:02d}",
-            f"{cm}-{cy_int + 2:02d}",
+            f"giu-{cy_int + 1:02d}",
+            f"giu-{cy_int + 2:02d}",
+            f"giu-{cy}",
+            f"{end_month}-{cy_int + 1:02d}",
+            f"{end_month}-{cy_int + 2:02d}",
             value,
             ""
         ] if value and value != "" and value != "nuovo fine prestito" else [
             f"gen-{cy_int + 1:02d}",    
-            f"lug-{cy_int + 1:02d}",
-            f"lug-{cy_int + 2:02d}",
-            f"lug-{cy}",
-            f"{cm}-{cy_int + 1:02d}",
-            f"{cm}-{cy_int + 2:02d}",
+            f"giu-{cy_int + 1:02d}",
+            f"giu-{cy_int + 2:02d}",
+            f"giu-{cy}",
+            f"{end_month}-{cy_int + 1:02d}",
+            f"{end_month}-{cy_int + 2:02d}",
             ""
         ]
+        choices = list(dict.fromkeys(choices))
         
         for choice in choices:
             editor.addItem(choice)

@@ -12,6 +12,7 @@ from services.stagione_service import (
     FASE_1_ESTIVA,
     FASE_2_INVERNALE,
     FASE_3_FINE_STAGIONE,
+    FASE_CAMPIONATO_IN_CORSO,
     FASE_STATO_APERTA,
     FASE_STATO_PIANIFICATA,
     STAGIONE_STATO_ATTIVA,
@@ -154,3 +155,128 @@ def test_update_stagione_dates_updates_phase_dates(tmp_path):
     assert phase_by_code[FASE_1_ESTIVA].asta_data_inizio == dt.date(2026, 9, 1)
     assert phase_by_code[FASE_2_INVERNALE].data_inizio == dt.date(2027, 1, 5)
     assert phase_by_code[FASE_3_FINE_STAGIONE].data_fine == dt.date(2027, 6, 15)
+
+
+def test_market_context_uses_operation_month_when_inside_session(tmp_path):
+    Session = _session_factory()
+    service = StagioneService(Session, storage_root=tmp_path / "Stagioni")
+    service.create_stagione(
+        CreateStagioneCommand(
+            anno_inizio=2026,
+            data_inizio=dt.date(2026, 8, 1),
+        )
+    )
+
+    context = service.get_market_operation_context(dt.date(2026, 9, 12))
+
+    assert context.fase_stagione == FASE_1_ESTIVA
+    assert context.periodo_regolamento == "sessione estiva 2026/2027"
+    assert context.mese_regolamento == "Settembre"
+
+
+def test_market_context_outside_session_uses_last_closed_session_month(tmp_path):
+    Session = _session_factory()
+    service = StagioneService(Session, storage_root=tmp_path / "Stagioni")
+    stagione = service.create_stagione(
+        CreateStagioneCommand(
+            anno_inizio=2026,
+            data_inizio=dt.date(2026, 8, 1),
+        )
+    )
+    service.update_stagione_dates(
+        UpdateStagioneDatesCommand(
+            stagione_id=stagione.id,
+            data_inizio=dt.date(2026, 8, 1),
+            data_fine=None,
+            fasi=[
+                UpdateStagioneFaseCommand(
+                    codice_fase=FASE_1_ESTIVA,
+                    data_inizio=dt.date(2026, 8, 1),
+                    data_fine=dt.date(2026, 9, 10),
+                    asta_data_inizio=None,
+                    asta_data_fine=None,
+                ),
+                UpdateStagioneFaseCommand(
+                    codice_fase=FASE_2_INVERNALE,
+                    data_inizio=None,
+                    data_fine=None,
+                    asta_data_inizio=None,
+                    asta_data_fine=None,
+                ),
+                UpdateStagioneFaseCommand(
+                    codice_fase=FASE_3_FINE_STAGIONE,
+                    data_inizio=None,
+                    data_fine=None,
+                    asta_data_inizio=None,
+                    asta_data_fine=None,
+                ),
+            ],
+        )
+    )
+    session = Session()
+    try:
+        db_stagione = session.query(Stagione).one()
+        db_stagione.fase_corrente = FASE_CAMPIONATO_IN_CORSO
+        session.commit()
+    finally:
+        session.close()
+
+    context = service.get_market_operation_context(dt.date(2026, 11, 20))
+
+    assert context.fase_stagione == FASE_1_ESTIVA
+    assert context.periodo_regolamento == "sessione estiva 2026/2027"
+    assert context.mese_regolamento == "Settembre"
+
+
+def test_market_context_during_end_season_uses_last_market_session(tmp_path):
+    Session = _session_factory()
+    service = StagioneService(Session, storage_root=tmp_path / "Stagioni")
+    stagione = service.create_stagione(
+        CreateStagioneCommand(
+            anno_inizio=2026,
+            data_inizio=dt.date(2026, 8, 1),
+        )
+    )
+    service.update_stagione_dates(
+        UpdateStagioneDatesCommand(
+            stagione_id=stagione.id,
+            data_inizio=dt.date(2026, 8, 1),
+            data_fine=dt.date(2027, 6, 30),
+            fasi=[
+                UpdateStagioneFaseCommand(
+                    codice_fase=FASE_1_ESTIVA,
+                    data_inizio=dt.date(2026, 8, 1),
+                    data_fine=dt.date(2026, 9, 10),
+                    asta_data_inizio=None,
+                    asta_data_fine=None,
+                ),
+                UpdateStagioneFaseCommand(
+                    codice_fase=FASE_2_INVERNALE,
+                    data_inizio=dt.date(2027, 1, 1),
+                    data_fine=dt.date(2027, 2, 10),
+                    asta_data_inizio=None,
+                    asta_data_fine=None,
+                ),
+                UpdateStagioneFaseCommand(
+                    codice_fase=FASE_3_FINE_STAGIONE,
+                    data_inizio=dt.date(2027, 6, 1),
+                    data_fine=None,
+                    asta_data_inizio=None,
+                    asta_data_fine=None,
+                ),
+            ],
+        )
+    )
+    session = Session()
+    try:
+        db_stagione = session.query(Stagione).one()
+        db_stagione.fase_corrente = FASE_3_FINE_STAGIONE
+        session.commit()
+    finally:
+        session.close()
+
+    context = service.get_market_operation_context(dt.date(2027, 6, 5))
+
+    assert context.fase_stagione == FASE_2_INVERNALE
+    assert context.periodo_regolamento == "sessione invernale 2026/2027"
+    assert context.mese_regolamento == "Febbraio"

@@ -17,6 +17,28 @@ FASE_2_INVERNALE = "fase_2_invernale"
 FASE_3_FINE_STAGIONE = "fase_3_fine_stagione"
 FASE_CAMPIONATO_IN_CORSO = "campionato_in_corso"
 
+MONTH_LABELS = {
+    1: "Gennaio",
+    2: "Febbraio",
+    8: "Agosto",
+    9: "Settembre",
+}
+
+MARKET_PHASES = {
+    FASE_1_ESTIVA: {
+        "periodo": "sessione estiva",
+        "months": (8, 9),
+        "fallback_month": "Settembre",
+        "order": 1,
+    },
+    FASE_2_INVERNALE: {
+        "periodo": "sessione invernale",
+        "months": (1, 2),
+        "fallback_month": "Febbraio",
+        "order": 2,
+    },
+}
+
 
 @dataclass(frozen=True)
 class PhaseDefinition:
@@ -70,6 +92,22 @@ class UpdateStagioneDatesCommand:
     data_inizio: dt.date
     data_fine: dt.date | None
     fasi: list[UpdateStagioneFaseCommand]
+
+
+@dataclass(frozen=True)
+class MarketOperationContext:
+    stagione_id: int
+    fase_stagione: str
+    periodo_regolamento: str
+    mese_regolamento: str
+
+    def as_dict(self) -> dict[str, int | str]:
+        return {
+            "stagione_id": self.stagione_id,
+            "fase_stagione": self.fase_stagione,
+            "periodo_regolamento": self.periodo_regolamento,
+            "mese_regolamento": self.mese_regolamento,
+        }
 
 
 @dataclass(frozen=True)
@@ -207,6 +245,32 @@ class StagioneService:
         finally:
             session.close()
 
+    def get_market_operation_context(
+        self,
+        operation_date: dt.date | None = None,
+    ) -> MarketOperationContext | None:
+        session = self.session_factory()
+        try:
+            stagione = self._active_stagione_query(session).first()
+            if not stagione:
+                return None
+            operation_date = operation_date or dt.date.today()
+            phase_code = self._phase_for_market_context(stagione, operation_date)
+            phase_meta = MARKET_PHASES[phase_code]
+            if operation_date.month in phase_meta["months"]:
+                month = MONTH_LABELS[operation_date.month]
+            else:
+                month = phase_meta["fallback_month"]
+
+            return MarketOperationContext(
+                stagione_id=int(stagione.id),
+                fase_stagione=phase_code,
+                periodo_regolamento=f"{phase_meta['periodo']} {stagione.codice}",
+                mese_regolamento=month,
+            )
+        finally:
+            session.close()
+
     def ensure_storage_dirs(self, storage_path: Path) -> None:
         storage_path.mkdir(parents=True, exist_ok=True)
         for definition in PHASE_DEFINITIONS:
@@ -220,6 +284,36 @@ class StagioneService:
             Stagione.stato == STAGIONE_STATO_ATTIVA,
             Stagione.deleted == False,
         )
+
+    def _phase_for_market_context(
+        self,
+        stagione: Stagione,
+        operation_date: dt.date,
+    ) -> str:
+        for phase_code, phase_meta in MARKET_PHASES.items():
+            if operation_date.month in phase_meta["months"]:
+                return phase_code
+
+        if stagione.fase_corrente in MARKET_PHASES:
+            return stagione.fase_corrente
+
+        closed_phases = [
+            fase
+            for fase in stagione.fasi
+            if fase.codice_fase in MARKET_PHASES
+            and fase.data_fine is not None
+            and fase.data_fine <= operation_date
+        ]
+        if closed_phases:
+            return max(
+                closed_phases,
+                key=lambda fase: MARKET_PHASES.get(
+                    fase.codice_fase,
+                    {"order": 0},
+                )["order"],
+            ).codice_fase
+
+        return FASE_1_ESTIVA
 
     def _to_dto(self, stagione: Stagione) -> StagioneDTO:
         fasi = sorted(stagione.fasi, key=lambda fase: fase.id or 0)

@@ -23,7 +23,7 @@ from PySide6.QtCore import Qt, QDate, Signal
 from PySide6.QtGui import QFont
 
 from models import TIPI_OPERAZIONE
-from operazione_repository import OperazioneRepository
+from operazione_repository import OperazioneRepository, contract_expiry_date
 from services.mercato_commands import (
     AcquistoDefinitivoCommand,
     AstaManualeCommand,
@@ -39,6 +39,7 @@ from services.mercato_commands import (
     SvincoloCommand,
 )
 from services.mercato_service import MercatoService
+from services.stagione_service import StagioneService
 
 
 #
@@ -60,14 +61,26 @@ from widgets.mercato.common import (
 from widgets.mercato.history import OperazioneCard
 from widgets.mercato.player_widgets import ClubPanel, PlayerPickerDialog
 
+
+MANUAL_TIPI_OPERAZIONE = [
+    tipo for tipo in TIPI_OPERAZIONE if tipo != "svincolo fine contratto"
+]
+
+
 class MercatoWidget(QWidget):
 
     # Emitted after an acquisto is committed so MainWindow can refresh tables
     operazione_committed = Signal()
 
-    def __init__(self, repo: OperazioneRepository, parent=None):
+    def __init__(
+        self,
+        repo: OperazioneRepository,
+        stagione_service: StagioneService | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.repo = repo
+        self.stagione_service = stagione_service
         self.service = MercatoService.from_repository(repo)
         # MainWindow populates this with persistent repo sessions so
         # calcola_acquisto can expire them before writing (releases SQLite read locks)
@@ -353,6 +366,7 @@ class MercatoWidget(QWidget):
 
         #
         try:
+            self._apply_operation_context(data_asta)
             self.service.importa_asta(
                 ImportaAstaCommand(
                     asta_data=asta_data,
@@ -645,7 +659,7 @@ class MercatoWidget(QWidget):
         tipo_row = QHBoxLayout()
         tipo_row.addWidget(_lbl("Tipo operazione:", size=11, color=MUTED))
         self.tipo_combo = QComboBox()
-        self.tipo_combo.addItems(TIPI_OPERAZIONE)
+        self.tipo_combo.addItems(MANUAL_TIPI_OPERAZIONE)
         self.tipo_combo.setStyleSheet(COMBO_STYLE)
         self.tipo_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.tipo_combo.currentTextChanged.connect(self._on_tipo_changed)
@@ -777,6 +791,13 @@ class MercatoWidget(QWidget):
         self.aumento_club_combo.blockSignals(False)
         self._on_tipo_changed(self.tipo_combo.currentText())
 
+    def _apply_operation_context(self, operation_date: datetime.date | None) -> None:
+        if not self.stagione_service:
+            self.repo.clear_operation_context()
+            return
+        context = self.stagione_service.get_market_operation_context(operation_date)
+        self.repo.set_operation_context(context.as_dict() if context else None)
+
     def _load_players_for_panel(self, panel: ClubPanel, squadra_nome: str):
         """Fetch players for the selected squadra and hand them to the panel."""
         if not squadra_nome:
@@ -882,6 +903,7 @@ class MercatoWidget(QWidget):
         qd        = self.data_edit.date()
         data      = datetime.date(qd.year(), qd.month(), qd.day())
         clausole  = self.clausole_edit.text().strip() or None
+        self._apply_operation_context(data)
 
         #
         if tipo == "asta":
@@ -1046,10 +1068,7 @@ class MercatoWidget(QWidget):
             )
 
         data_norm = data.replace(day=1)
-        if data_norm.month in (1, 2):
-            scadenza = datetime.date(data_norm.year + 2, 7, 1)
-        else:
-            scadenza = datetime.date(data_norm.year + 3, 7, 1)
+        scadenza = contract_expiry_date(data_norm)
 
         summary = (
             f"Confermi il seguente acquisto definitivo?\n\n"
@@ -1183,10 +1202,7 @@ class MercatoWidget(QWidget):
         amount_B = sum(all_vs.get(d["id"], 0) for d in giocatori_data_b) + fm
 
         data_norm = data.replace(day=1)
-        if data_norm.month in (1, 2):
-            scadenza = datetime.date(data_norm.year + 2, 7, 1)
-        else:
-            scadenza = datetime.date(data_norm.year + 3, 7, 1)
+        scadenza = contract_expiry_date(data_norm)
 
         tot_quotA = sum(d["quotazione"] for d in giocatori_data_a)
         tot_quotB = sum(d["quotazione"] for d in giocatori_data_b)
@@ -1634,11 +1650,7 @@ class MercatoWidget(QWidget):
         extension_total = 0
         extension_lines = []
         data_norm = data_asta.replace(day=1)
-        base_scadenza = (
-            datetime.date(data_norm.year + 2, 7, 1)
-            if data_norm.month in (1, 2)
-            else datetime.date(data_norm.year + 3, 7, 1)
-        )
+        base_scadenza = contract_expiry_date(data_norm)
         for d in giocatori_data:
             if not d.get("estendi"):
                 continue

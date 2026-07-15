@@ -108,6 +108,10 @@ class SupabaseSeedExporterTests(unittest.TestCase):
                 conguaglio_da_id integer,
                 data date,
                 clausole varchar,
+                stagione_id integer,
+                fase_stagione varchar,
+                periodo_regolamento varchar,
+                mese_regolamento varchar,
                 operation_snapshot text
             );
 
@@ -229,7 +233,7 @@ class SupabaseSeedExporterTests(unittest.TestCase):
             values
                 (
                     10, 'Player A', 'Team A', 1.0, '2026-01-01', '1', 10,
-                    1, 0, 1.0, '2028-07-01', null, null, null, null, 1, 1, 0
+                    1, 0, 1.0, '2028-06-30', null, null, null, null, 1, 1, 0
                 )
             """
         )
@@ -239,11 +243,15 @@ class SupabaseSeedExporterTests(unittest.TestCase):
                 (
                     id, fantasquadra_a_id, fantasquadra_b_id, tipo_operazione,
                     conguaglio, conguaglio_da_id, data, clausole,
+                    stagione_id, fase_stagione, periodo_regolamento,
+                    mese_regolamento,
                     operation_snapshot
                 )
             values
                 (
                     20, 1, null, 'asta', 0, null, '2026-07-14', null,
+                    1, 'fase_1_estiva', 'sessione estiva 2026/2027',
+                    'Settembre',
                     '{"schema_version": 1, "tipo_operazione": "asta"}'
                 )
             """
@@ -308,6 +316,7 @@ class SupabaseSeedExporterTests(unittest.TestCase):
         self.assertIn("insert into public.stagione_fasi", seed_sql)
         self.assertIn("insert into public.stagione_files", seed_sql)
         self.assertIn("insert into public.stagione_step_log", seed_sql)
+        self.assertIn("sessione estiva 2026/2027", seed_sql)
         self.assertNotIn(
             "insert into public.operazione_giocatori "
             "(operazione_id, giocatore_id) values (99, 10);",

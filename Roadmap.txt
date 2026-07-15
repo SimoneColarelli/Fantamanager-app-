@@ -109,7 +109,21 @@ Next features:
 	- added `QuotazioniService`
 	- menu update actions and seasonal update buttons share the same service
 	- seasonal update buttons trigger the coherent automatic backup
-	- next step: add season context fields to market operations
+	- Step 5 market context IMPLEMENTED
+	- added season/regulation context fields to `operazioni`
+	- added SQLite migration `009_operation_season_context`
+	- added Supabase migration `20260715000200_operation_season_context.sql`
+	- market operations now receive context from the active season
+	- operation history displays the regulation context when available
+	- Step 6 seasonal auction actions IMPLEMENTED
+	- seasonal roster exports write JSON files and register them in `stagione_files`
+	- seasonal import actions route to the existing `Mercato` flow
+	- Step 7 end-season expired contract release IMPLEMENTED
+	- added dedicated `svincolo fine contratto` operation with semantic undo
+	- no FM are credited during end-season contract release
+	- `Stagioni` tab exposes month selection and `Svincola contratti scaduti`
+	- end-season release triggers the `fine_stagione` backup
+	- old expiry defaults are migrated from the previous convention to June 30
 
 In client app:
 - fix simulatore behaviour: when calculating a cessione without contropartite (Team B pays N fm for players of Team A), throw a warning if the amount of FM is less then the sum of valore svincolo of players

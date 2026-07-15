@@ -15,6 +15,8 @@ MIGRATIONS = (
     "migrations.006_operation_snapshot",
     "migrations.007_integer_economic_values",
     "migrations.008_stagioni",
+    "migrations.009_operation_season_context",
+    "migrations.010_june_contract_expiry",
 )
 
 

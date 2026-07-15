@@ -30,6 +30,7 @@ TIPO_META: Dict[str, tuple] = {
     "prestito":            ("#7a4f00", "#fff3cd"),
     "scambio prestiti":    ("#5a007a", "#f0d6ff"),
     "svincolo":            ("#8a1500", "#ffe0db"),
+    "svincolo fine contratto": ("#5c1b00", "#ffe8d6"),
     "asta":               ("#1a4a7a", "#d0e8ff"),
     "aumento contratto":  ("#6a3d00", "#ffe8c0"),
 }

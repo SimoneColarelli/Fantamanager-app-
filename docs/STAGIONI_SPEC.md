@@ -100,8 +100,10 @@ corrispondenza della fine del campionato di Serie A.
 
 Nota di dominio:
 
-- luglio non deve piu' essere usato come mese di fine stagione;
-- tutti i riferimenti precedenti a luglio devono essere sostituiti con giugno.
+- il mese successivo a giugno non deve piu' essere usato come mese di fine
+  stagione;
+- tutti i riferimenti alla vecchia convenzione devono essere sostituiti con
+  giugno.
 
 In questa fase avvengono:
 
@@ -941,14 +943,30 @@ Stato implementazione:
 - dopo ogni update stagionale viene creato il backup coerente della fase;
 - aggiunti test `tests/test_quotazioni_service.py`.
 
-### Step 5: contesto mercato
+### Step 5: contesto mercato. IMPLEMENTATO
 
 - Aggiungere campi stagionali a `Operazione`.
 - Far leggere al tab `Mercato` la stagione attiva.
 - Applicare default fase/periodo/mese in base alla fase corrente.
 - Aggiornare storico operazioni con info stagione/fase.
 
-### Step 6: aste stagionali
+Stato implementazione:
+
+- aggiunti a `Operazione` i campi `stagione_id`, `fase_stagione`,
+  `periodo_regolamento` e `mese_regolamento`;
+- aggiunta migrazione SQLite `009_operation_season_context`;
+- aggiunta migrazione Supabase `20260715000200_operation_season_context.sql`;
+- il seed export Supabase include le nuove colonne di contesto;
+- `MercatoWidget` legge la stagione attiva tramite `StagioneService`;
+- `OperazioneRepository` applica il contesto in modo centralizzato a tutte le
+  operazioni registrate;
+- le operazioni fuori sessione vengono agganciate all'ultima sessione di mercato
+  chiusa, come da decisione confermata;
+- lo storico operazioni mostra il contesto regolamentare quando presente;
+- aggiunti test minimi sul calcolo del contesto e sulla persistenza in
+  operazione.
+
+### Step 6: aste stagionali. IMPLEMENTATO
 
 - Aggiungere pulsanti:
   - esporta rose per asta;
@@ -957,19 +975,50 @@ Stato implementazione:
 - Per il primo step, `Importa asta` puo' solo portare al tab `Mercato`.
 - In seguito, integrare direttamente il flusso asta nel tab `Stagioni`.
 
-### Step 7: fine stagione
+Stato implementazione:
+
+- aggiunto `BackupService.export_rosters_for_asta`;
+- il tab `Stagioni` espone i pulsanti asta nelle fasi estiva e invernale;
+- `Esporta rose per asta` genera un JSON stagionale nella cartella della fase;
+- il file generato viene registrato in `stagione_files`;
+- i pulsanti `Importa asta` portano al tab `Mercato`, mantenendo il flusso di
+  import esistente come sorgente operativa;
+- aggiunto test sul file di export rose e sulla registrazione in archivio.
+
+### Step 7: fine stagione. IMPLEMENTATO
 
 - Implementare svincolo fine contratto.
 - Assicurare assenza di accredito FM.
 - Registrare audit/semantic undo.
 - Generare backup operazioni fine stagione.
 
+Stato implementazione:
+
+- aggiunto comando `SvincoloFineContrattoCommand`;
+- aggiunto metodo applicativo `MercatoService.svincola_fine_contratto`;
+- aggiunto flusso dedicato in `OperazioneRepository`, separato dallo
+  `svincolo` ordinario;
+- il flusso crea operazioni `svincolo fine contratto`, senza accredito FM;
+- le operazioni vengono registrate con contesto
+  `Fine stagione <stagione> - <Maggio|Giugno>`;
+- lo storico operazioni mostra una card dedicata con indicazione
+  `Nessun accredito FM`;
+- `semantic_undo_log` registra l'operazione e l'undo ricrea i giocatori
+  svincolati senza modificare il saldo FM;
+- il tab `Stagioni` espone il bottone `Svincola contratti scaduti` nella fase
+  fine stagione, con selezione mese maggio/giugno;
+- dopo lo svincolo viene creato il backup `fine_stagione`;
+- i dati storici con la vecchia convenzione sono migrati a `30 giugno`;
+- aggiunti test di business rule e semantic undo.
+
 ## 16. Decisioni e questioni aperte
 
 ### 16.1 Questioni ancora aperte
 
-1. Formato export rose per asta.
-   Va definito quando verra' implementato il bottone `Esporta rose per asta`.
+1. Formato asta definitivo.
+   Esiste un primo export JSON operativo per le rose, ma resta da definire il
+   formato definitivo da usare quando il flusso di import asta verra' portato
+   direttamente dentro il tab `Stagioni`.
 
 ### 16.2 Decisioni confermate
 

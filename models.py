@@ -165,6 +165,7 @@ TIPI_OPERAZIONE = [
     "prestito",
     "scambio prestiti",
     "svincolo",
+    "svincolo fine contratto",
     "asta",
     "aumento contratto",
 ]
@@ -187,6 +188,10 @@ class Operazione(Base):
 
     data = Column(Date, nullable=True)
     clausole = Column(String, nullable=True)
+    stagione_id = Column(Integer, ForeignKey("stagioni.id"), nullable=True)
+    fase_stagione = Column(String, nullable=True)
+    periodo_regolamento = Column(String, nullable=True)
+    mese_regolamento = Column(String, nullable=True)
     # Stable JSON payload used by history cards/reports without depending on
     # the current state of players or teams.
     operation_snapshot = Column(Text, nullable=True)
@@ -195,6 +200,7 @@ class Operazione(Base):
     fantasquadra_a = relationship("Fantasquadra", foreign_keys=[fantasquadra_a_id])
     fantasquadra_b = relationship("Fantasquadra", foreign_keys=[fantasquadra_b_id])
     conguaglio_da = relationship("Fantasquadra", foreign_keys=[conguaglio_da_id])
+    stagione = relationship("Stagione", foreign_keys=[stagione_id])
 
     giocatori = relationship(
         "Giocatore",

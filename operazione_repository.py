@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from dataclasses import dataclass
 from typing import Any, List, Optional
 
 from sqlalchemy.orm import joinedload
@@ -15,10 +16,30 @@ from models import Operazione, Giocatore, Fantasquadra, TIPI_OPERAZIONE
 from persistence.semantic_undo import SemanticUndoBuilder, model_snapshot
 
 
+FINE_STAGIONE_MONTH_LABELS = {
+    5: "Maggio",
+    6: "Giugno",
+}
+
+
+def contract_expiry_date(data_acquisto: datetime.date) -> datetime.date:
+    year_delta = 2 if data_acquisto.month in (1, 2) else 3
+    return datetime.date(data_acquisto.year + year_delta, 6, 30)
+
+
+@dataclass(frozen=True)
+class SvincoloFineContrattoResult:
+    operazione_ids: list[int]
+    giocatori_svincolati: int
+    fantasquadre_coinvolte: int
+    mese_regolamento: str
+
+
 class OperazioneRepository:
     def __init__(self, session_factory):
         self.session_factory = session_factory
         self.session = session_factory()
+        self.operation_context: Optional[dict[str, Any]] = None
 
     @staticmethod
     def _assign_team(giocatore: Giocatore, fantasquadra: Fantasquadra) -> None:
@@ -36,6 +57,24 @@ class OperazioneRepository:
         giocatore.prestito_a_fantasquadra_id = None
         giocatore.inizio_prestito = None
         giocatore.fine_prestito = None
+
+    def set_operation_context(self, context: Optional[dict[str, Any]]) -> None:
+        self.operation_context = dict(context) if context else None
+
+    def clear_operation_context(self) -> None:
+        self.operation_context = None
+
+    def _apply_operation_context(self, op: Operazione) -> None:
+        if not self.operation_context:
+            return
+        op.stagione_id = self.operation_context.get("stagione_id")
+        op.fase_stagione = self.operation_context.get("fase_stagione")
+        op.periodo_regolamento = self.operation_context.get("periodo_regolamento")
+        op.mese_regolamento = self.operation_context.get("mese_regolamento")
+
+    def _add_operazione(self, session, op: Operazione) -> None:
+        self._apply_operation_context(op)
+        session.add(op)
 
     @staticmethod
     def _snapshot_map(objects) -> dict[int, dict[str, Any]]:
@@ -217,7 +256,7 @@ class OperazioneRepository:
         )
         op.giocatori = giocatori
 
-        session.add(op)
+        self._add_operazione(session, op)
         session.flush()
         undo.capture_after("operazione", op)
         undo.write(session, op.id)
@@ -320,7 +359,7 @@ class OperazioneRepository:
                 clausole=clausole or "",
             )
             op.giocatori = giocatori
-            session.add(op)
+            self._add_operazione(session, op)
             session.flush()   # assigns op.id and writes M2M rows before deletion
             op.operation_snapshot = self._snapshot_json(
                 op,
@@ -348,6 +387,155 @@ class OperazioneRepository:
             raise
         finally:
             session.close()
+
+    def calcola_svincoli_fine_contratto(
+        self,
+        *,
+        stagione_id: int,
+        stagione_codice: str,
+        anno_fine: int,
+        mese_regolamento: int,
+        clausole: Optional[str] = None,
+        sessions_to_expire: Optional[List] = None,
+    ) -> SvincoloFineContrattoResult:
+        """
+        Release players whose contracts expire at the end of the season.
+
+        This is intentionally distinct from ordinary svincolo: no FM are
+        credited to the owning team.
+        """
+        if mese_regolamento not in FINE_STAGIONE_MONTH_LABELS:
+            raise ValueError("Il mese fine stagione deve essere maggio o giugno.")
+
+        for s in (sessions_to_expire or []):
+            try:
+                session = s.session if hasattr(s, "session") else s
+                session.close()
+                if hasattr(s, "session_factory"):
+                    s.session = s.session_factory()
+            except Exception:
+                pass
+
+        previous_context = self.operation_context
+        self.set_operation_context(
+            {
+                "stagione_id": stagione_id,
+                "fase_stagione": "fase_3_fine_stagione",
+                "periodo_regolamento": f"Fine stagione {stagione_codice}",
+                "mese_regolamento": FINE_STAGIONE_MONTH_LABELS[mese_regolamento],
+            }
+        )
+
+        session = self.session_factory()
+        try:
+            candidates = [
+                g
+                for g in session.query(Giocatore)
+                .filter(
+                    Giocatore.deleted.is_(False),
+                    Giocatore.fantasquadra_id.isnot(None),
+                    Giocatore.scadenza_contratto.isnot(None),
+                )
+                .order_by(Giocatore.fantasquadra_id, Giocatore.nome)
+                .all()
+                if self._is_fine_contratto_candidate(g.scadenza_contratto, anno_fine)
+            ]
+
+            if not candidates:
+                return SvincoloFineContrattoResult(
+                    operazione_ids=[],
+                    giocatori_svincolati=0,
+                    fantasquadre_coinvolte=0,
+                    mese_regolamento=FINE_STAGIONE_MONTH_LABELS[mese_regolamento],
+                )
+
+            by_team: dict[int, list[Giocatore]] = {}
+            for giocatore in candidates:
+                by_team.setdefault(int(giocatore.fantasquadra_id), []).append(giocatore)
+
+            operation_date = datetime.date(anno_fine, mese_regolamento, 1)
+            operazione_ids: list[int] = []
+            for fq_id, giocatori in sorted(by_team.items()):
+                fq = session.query(Fantasquadra).filter_by(id=fq_id).one()
+                fq_before = model_snapshot(fq)
+                giocatori_before = self._snapshot_map(giocatori)
+                undo = SemanticUndoBuilder("svincolo fine contratto")
+                undo.capture_before("fantasquadra", fq)
+                undo.capture_before_many("giocatore", giocatori)
+
+                total_vs = sum(int(g.valore_svincolo or 0) for g in giocatori)
+                snapshot_rows = []
+                for g in giocatori:
+                    snapshot_rows.append(
+                        {
+                            "id": g.id,
+                            "nome": g.nome,
+                            "valore_svincolo": g.valore_svincolo,
+                            "scadenza_contratto": g.scadenza_contratto.isoformat()
+                            if g.scadenza_contratto
+                            else None,
+                            "accredito_fm": 0,
+                        }
+                    )
+
+                op = Operazione(
+                    fantasquadra_a_id=fq_id,
+                    fantasquadra_b_id=None,
+                    tipo_operazione="svincolo fine contratto",
+                    conguaglio=0,
+                    conguaglio_da_id=None,
+                    data=operation_date,
+                    clausole=clausole
+                    or f"Svincolo fine contratto stagione {stagione_codice}",
+                )
+                op.giocatori = giocatori
+                self._add_operazione(session, op)
+                session.flush()
+                op.operation_snapshot = self._snapshot_json(
+                    op,
+                    fq_a_before=fq_before,
+                    fq_a_after=model_snapshot(fq),
+                    giocatori_before=giocatori_before,
+                    giocatori_after={},
+                    giocatori_details=snapshot_rows,
+                    extra={
+                        "valore_svincolo_totale": total_vs,
+                        "accredito_fm": 0,
+                        "giocatori_svincolati": len(giocatori),
+                        "stagione": stagione_codice,
+                    },
+                )
+                undo.capture_after("fantasquadra", fq)
+                undo.capture_after("operazione", op)
+                undo.write(session, op.id)
+                operazione_ids.append(int(op.id))
+
+                for g in giocatori:
+                    session.delete(g)
+
+            session.commit()
+            return SvincoloFineContrattoResult(
+                operazione_ids=operazione_ids,
+                giocatori_svincolati=len(candidates),
+                fantasquadre_coinvolte=len(by_team),
+                mese_regolamento=FINE_STAGIONE_MONTH_LABELS[mese_regolamento],
+            )
+
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            self.operation_context = previous_context
+            session.close()
+
+    @staticmethod
+    def _is_fine_contratto_candidate(
+        scadenza_contratto: datetime.date | None,
+        anno_fine: int,
+    ) -> bool:
+        if scadenza_contratto is None or scadenza_contratto.year != anno_fine:
+            return False
+        return scadenza_contratto.month == 6
 
     def calcola_scambio_prestiti(
         self,
@@ -428,7 +616,7 @@ class OperazioneRepository:
                 clausole=clausole or "",
             )
             op.giocatori = giocatori_a + giocatori_b
-            session.add(op)
+            self._add_operazione(session, op)
             session.flush()
             op.operation_snapshot = self._snapshot_json(
                 op,
@@ -543,7 +731,7 @@ class OperazioneRepository:
                 clausole=clausole or "",
             )
             op.giocatori = giocatori
-            session.add(op)
+            self._add_operazione(session, op)
             session.flush()
             op.operation_snapshot = self._snapshot_json(
                 op,
@@ -654,10 +842,7 @@ class OperazioneRepository:
 
             # Normalise data_acquisto
             data_norm = data_acquisto.replace(day=1)
-            if data_norm.month in (1, 2):
-                scadenza = datetime.date(data_norm.year + 2, 7, 1)
-            else:
-                scadenza = datetime.date(data_norm.year + 3, 7, 1)
+            scadenza = contract_expiry_date(data_norm)
 
             # ── Players A → fq_b ─────────────────────────────────────────
             if tot_quotA == 0 and giocatori_a:
@@ -717,7 +902,7 @@ class OperazioneRepository:
                 clausole=clausole or "",
             )
             op.giocatori = giocatori_a + giocatori_b
-            session.add(op)
+            self._add_operazione(session, op)
             session.flush()
             op.operation_snapshot = self._snapshot_json(
                 op,
@@ -804,10 +989,7 @@ class OperazioneRepository:
         try:
             # Normalise data and compute scadenza_contratto
             data_norm = data_asta.replace(day=1)
-            if data_norm.month in (1, 2):
-                scadenza = datetime.date(data_norm.year + 2, 7, 1)
-            else:
-                scadenza = datetime.date(data_norm.year + 3, 7, 1)
+            scadenza = contract_expiry_date(data_norm)
 
             # Map fantasquadra name → object (need to mutate .fm)
             fqs = session.query(Fantasquadra).filter_by(deleted=False).all()
@@ -877,7 +1059,7 @@ class OperazioneRepository:
                     clausole           = f"Asta avvenuta in data {data_asta.strftime('%d/%m/%Y')}",
                 )
                 op.giocatori = new_giocatori
-                session.add(op)
+                self._add_operazione(session, op)
                 session.flush()
                 op.operation_snapshot = self._snapshot_json(
                     op,
@@ -962,10 +1144,7 @@ class OperazioneRepository:
 
             # Normalise the single shared date for all players
             data_norm = (data_asta or datetime.date.today()).replace(day=1)
-            if data_norm.month in (1, 2):
-                scadenza = datetime.date(data_norm.year + 2, 7, 1)
-            else:
-                scadenza = datetime.date(data_norm.year + 3, 7, 1)
+            scadenza = contract_expiry_date(data_norm)
 
             new_giocatori: List[Giocatore] = []
             total_fm = 0
@@ -1037,7 +1216,7 @@ class OperazioneRepository:
                 clausole          = f"Asta avvenuta in data {data_asta.strftime('%d/%m/%Y')}",
             )
             op.giocatori = new_giocatori
-            session.add(op)
+            self._add_operazione(session, op)
 
             aumento_op = None
             if estendi_giocatori:
@@ -1051,7 +1230,7 @@ class OperazioneRepository:
                     clausole           = "Aumento contratto contestuale ad asta",
                 )
                 aumento_op.giocatori = estendi_giocatori
-                session.add(aumento_op)
+                self._add_operazione(session, aumento_op)
             session.flush()
             fq_after = model_snapshot(fq)
             op.operation_snapshot = self._snapshot_json(
@@ -1215,7 +1394,7 @@ class OperazioneRepository:
                 clausole           = "",
             )
             op.giocatori = giocatori
-            session.add(op)
+            self._add_operazione(session, op)
             session.flush()
             op.operation_snapshot = self._snapshot_json(
                 op,
@@ -1328,10 +1507,7 @@ class OperazioneRepository:
             data_norm = data_acquisto.replace(day=1)
 
             # ── Compute scadenza_contratto ───────────────────────────────
-            if data_norm.month in (1, 2):
-                scadenza = datetime.date(data_norm.year + 2, 7, 1)
-            else:
-                scadenza = datetime.date(data_norm.year + 3, 7, 1)
+            scadenza = contract_expiry_date(data_norm)
 
             # ── Update each Giocatore ────────────────────────────────────
             spese = self._allocate_integer_amount(
@@ -1368,7 +1544,7 @@ class OperazioneRepository:
                 clausole=clausole or "",
             )
             op.giocatori = giocatori
-            session.add(op)
+            self._add_operazione(session, op)
             session.flush()
             op.operation_snapshot = self._snapshot_json(
                 op,

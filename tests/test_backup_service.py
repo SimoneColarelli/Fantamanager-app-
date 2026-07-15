@@ -88,3 +88,36 @@ def test_create_season_backup_writes_files_and_registers_them(tmp_path):
         assert all(file.note == "inizio_stagione" for file in files)
     finally:
         session.close()
+
+
+def test_export_rosters_for_asta_writes_json_and_registers_file(tmp_path):
+    Session = _session_factory()
+    _seed_market_data(Session)
+    stagione = StagioneService(Session, storage_root=tmp_path / "Stagioni").create_stagione(
+        CreateStagioneCommand(
+            anno_inizio=2026,
+            data_inizio=dt.date(2026, 8, 1),
+        )
+    )
+
+    result = BackupService(Session).export_rosters_for_asta(
+        stagione,
+        "fase_1_estiva",
+    )
+
+    assert result.ok
+    path = result.paths[0]
+    assert path.is_file()
+    assert path.parent == tmp_path / "Stagioni" / "2026-2027" / "01_fase_estiva" / "asta"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["tipo"] == "export_rosters_for_asta"
+    assert payload["squadre"][0]["nome"] == "Team A"
+    assert payload["squadre"][0]["giocatori"][0]["nome"] == "Player A"
+
+    session = Session()
+    try:
+        file = session.query(StagioneFile).filter_by(tipo_file="export_asta").one()
+        assert file.fase_id is not None
+        assert file.note == "export_rosters_for_asta"
+    finally:
+        session.close()

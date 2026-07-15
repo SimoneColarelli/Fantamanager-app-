@@ -28,6 +28,7 @@ from services.mercato_commands import (
     ScambioDefinitivoCommand,
     ScambioPrestitiCommand,
     SvincoloCommand,
+    SvincoloFineContrattoCommand,
 )
 from services.mercato_service import MercatoService
 
@@ -58,7 +59,14 @@ class SemanticUndoTests(unittest.TestCase):
         finally:
             session.close()
 
-    def seed_player(self, nome, squadra, valore_svincolo=100):
+    def seed_player(
+        self,
+        nome,
+        squadra,
+        valore_svincolo=100,
+        fantasquadra_id=None,
+        scadenza=datetime.date(2028, 6, 30),
+    ):
         session = self.Session()
         try:
             player = Giocatore(
@@ -70,7 +78,8 @@ class SemanticUndoTests(unittest.TestCase):
                 quotazione=10,
                 dq=0,
                 valore_svincolo=valore_svincolo,
-                scadenza_contratto=datetime.date(2028, 7, 1),
+                scadenza_contratto=scadenza,
+                fantasquadra_id=fantasquadra_id,
                 convocato=True,
                 in_serie_a=True,
                 deleted=False,
@@ -235,6 +244,41 @@ class SemanticUndoTests(unittest.TestCase):
         self.assertEqual(player.nome, "Released")
         self.assertEqual(op_count, 0)
 
+    def test_undo_svincolo_fine_contratto_recreates_player_without_fm_change(self):
+        team_id = self.seed_team("Team A", 100)
+        player_id = self.seed_player(
+            "Expired",
+            "Team A",
+            valore_svincolo=75,
+            fantasquadra_id=team_id,
+            scadenza=datetime.date(2027, 6, 30),
+        )
+
+        self.service.svincola_fine_contratto(
+            SvincoloFineContrattoCommand(
+                stagione_id=1,
+                stagione_codice="2026/2027",
+                anno_fine=2027,
+                mese_regolamento=6,
+            )
+        )
+
+        result = undo_transaction(self.Session, self.latest_transaction_id())
+
+        session = self.Session()
+        try:
+            team = session.get(Fantasquadra, team_id)
+            player = session.get(Giocatore, player_id)
+            op_count = session.execute(text("SELECT COUNT(*) FROM operazioni")).scalar()
+        finally:
+            session.close()
+
+        self.assertEqual(result.inverse_action_type, "undo_svincolo_fine_contratto")
+        self.assertEqual(team.fm, 100)
+        self.assertIsNotNone(player)
+        self.assertEqual(player.nome, "Expired")
+        self.assertEqual(op_count, 0)
+
     def test_asta_manuale_records_created_player_before_snapshot_as_null(self):
         team_id = self.seed_team("Team A", 1000)
 
@@ -328,7 +372,7 @@ class SemanticUndoTests(unittest.TestCase):
                 giocatori=[
                     PlayerLoanCommand(
                         id=player_id,
-                        fine_prestito=datetime.date(2027, 7, 1),
+                        fine_prestito=datetime.date(2027, 6, 30),
                     )
                 ],
                 fq_prestante_id=lender_id,
@@ -351,13 +395,13 @@ class SemanticUndoTests(unittest.TestCase):
                 giocatori_a=[
                     PlayerLoanCommand(
                         id=player_a_id,
-                        fine_prestito=datetime.date(2027, 7, 1),
+                        fine_prestito=datetime.date(2027, 6, 30),
                     )
                 ],
                 giocatori_b=[
                     PlayerLoanCommand(
                         id=player_b_id,
-                        fine_prestito=datetime.date(2027, 7, 1),
+                        fine_prestito=datetime.date(2027, 6, 30),
                     )
                 ],
                 fq_a_id=team_a_id,

@@ -13,6 +13,7 @@ from services.mercato_commands import (
     ScambioDefinitivoCommand,
     ScambioPrestitiCommand,
     SvincoloCommand,
+    SvincoloFineContrattoCommand,
 )
 from services.unit_of_work import UnitOfWork
 
@@ -103,6 +104,17 @@ class MercatoService:
                 giocatore_ids=command.giocatore_ids,
                 fq_id=command.fq_id,
                 data=command.data,
+                clausole=command.clausole,
+                sessions_to_expire=command.sessions_to_expire,
+            )
+
+    def svincola_fine_contratto(self, command: SvincoloFineContrattoCommand):
+        with self.uow_factory() as uow:
+            return uow.operazioni.calcola_svincoli_fine_contratto(
+                stagione_id=command.stagione_id,
+                stagione_codice=command.stagione_codice,
+                anno_fine=command.anno_fine,
+                mese_regolamento=command.mese_regolamento,
                 clausole=command.clausole,
                 sessions_to_expire=command.sessions_to_expire,
             )

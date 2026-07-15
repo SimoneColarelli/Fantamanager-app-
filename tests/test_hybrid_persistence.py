@@ -44,7 +44,7 @@ class HybridPersistenceTests(unittest.TestCase):
                 quotazione=10,
                 dq=0,
                 valore_svincolo=1,
-                scadenza_contratto=datetime.date(2028, 7, 1),
+                scadenza_contratto=datetime.date(2028, 6, 30),
                 convocato=True,
                 in_serie_a=True,
                 deleted=False,

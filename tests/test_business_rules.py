@@ -16,6 +16,7 @@ from services.mercato_commands import (
     AstaPlayerCommand,
     PlayerQuoteCommand,
     SvincoloCommand,
+    SvincoloFineContrattoCommand,
 )
 from services.mercato_service import MercatoService
 
@@ -55,7 +56,8 @@ class BusinessRuleTests(unittest.TestCase):
         quotazione=10,
         valore_svincolo=100,
         data_acquisto=datetime.date(2026, 8, 1),
-        scadenza=datetime.date(2029, 7, 1),
+        scadenza=datetime.date(2029, 6, 30),
+        fantasquadra_id=None,
     ):
         session = self.Session()
         try:
@@ -69,6 +71,7 @@ class BusinessRuleTests(unittest.TestCase):
                 dq=0,
                 valore_svincolo=valore_svincolo,
                 scadenza_contratto=scadenza,
+                fantasquadra_id=fantasquadra_id,
                 convocato=True,
                 in_serie_a=True,
                 deleted=False,
@@ -84,26 +87,26 @@ class BusinessRuleTests(unittest.TestCase):
         jan = SimpleNamespace(
             valore_svincolo=333,
             data_acquisto=datetime.date(2026, 1, 1),
-            scadenza_contratto=datetime.date(2026, 7, 1),
+            scadenza_contratto=datetime.date(2026, 6, 30),
         )
         aug = SimpleNamespace(
             valore_svincolo=333,
             data_acquisto=datetime.date(2026, 8, 1),
-            scadenza_contratto=datetime.date(2026, 7, 1),
+            scadenza_contratto=datetime.date(2026, 6, 30),
         )
         mar = SimpleNamespace(
             valore_svincolo=333,
             data_acquisto=datetime.date(2026, 3, 1),
-            scadenza_contratto=datetime.date(2026, 7, 1),
+            scadenza_contratto=datetime.date(2026, 6, 30),
         )
 
         self.assertEqual(
             self.repo.calcola_costo_aumento(jan),
-            (100, 1, datetime.date(2027, 7, 1)),
+            (100, 1, datetime.date(2027, 6, 30)),
         )
         self.assertEqual(
             self.repo.calcola_costo_aumento(aug),
-            (117, 2, datetime.date(2028, 7, 1)),
+            (117, 2, datetime.date(2028, 6, 30)),
         )
         with self.assertRaises(ValueError):
             self.repo.calcola_costo_aumento(mar)
@@ -135,7 +138,7 @@ class BusinessRuleTests(unittest.TestCase):
             self.assertEqual(team.fm, 865)
             self.assertEqual(player.fantasquadra_id, team_id)
             self.assertIsNone(player.prestito_a_fantasquadra_id)
-            self.assertEqual(player.scadenza_contratto, datetime.date(2031, 7, 1))
+            self.assertEqual(player.scadenza_contratto, datetime.date(2031, 6, 30))
             self.assertEqual([op.tipo_operazione for op in ops], ["asta", "aumento contratto"])
             self.assertEqual(ops[0].conguaglio, 100)
             self.assertEqual(ops[1].conguaglio, 35)
@@ -150,7 +153,7 @@ class BusinessRuleTests(unittest.TestCase):
             squadra="Seller",
             valore_svincolo=100,
             data_acquisto=datetime.date(2025, 8, 1),
-            scadenza=datetime.date(2028, 7, 1),
+            scadenza=datetime.date(2028, 6, 30),
         )
 
         self.service.registra_acquisto_definitivo(
@@ -177,8 +180,41 @@ class BusinessRuleTests(unittest.TestCase):
             self.assertIsNone(player.prestito_a_fantasquadra_id)
             self.assertEqual(player.spesa, 200)
             self.assertEqual(player.valore_svincolo, 200)
-            self.assertEqual(player.scadenza_contratto, datetime.date(2028, 7, 1))
+            self.assertEqual(player.scadenza_contratto, datetime.date(2028, 6, 30))
             self.assertFalse(player.convocato)
+        finally:
+            session.close()
+
+    def test_operation_context_is_persisted_on_market_operation(self):
+        seller_id = self.seed_team("Seller", fm=0)
+        buyer_id = self.seed_team("Buyer", fm=1000)
+        player_id = self.seed_player(nome="Context Player", squadra="Seller")
+        self.repo.set_operation_context(
+            {
+                "stagione_id": 7,
+                "fase_stagione": "fase_1_estiva",
+                "periodo_regolamento": "sessione estiva 2026/2027",
+                "mese_regolamento": "Settembre",
+            }
+        )
+
+        self.service.registra_acquisto_definitivo(
+            AcquistoDefinitivoCommand(
+                giocatori=[PlayerQuoteCommand(id=player_id, quotazione=10)],
+                fq_venditrice_id=seller_id,
+                fq_acquirente_id=buyer_id,
+                fm=100,
+                data_acquisto=datetime.date(2026, 9, 1),
+            )
+        )
+
+        session = self.Session()
+        try:
+            op = session.query(Operazione).one()
+            self.assertEqual(op.stagione_id, 7)
+            self.assertEqual(op.fase_stagione, "fase_1_estiva")
+            self.assertEqual(op.periodo_regolamento, "sessione estiva 2026/2027")
+            self.assertEqual(op.mese_regolamento, "Settembre")
         finally:
             session.close()
 
@@ -205,6 +241,53 @@ class BusinessRuleTests(unittest.TestCase):
             snapshot = json.loads(op.operation_snapshot)
             self.assertEqual(snapshot["tipo_operazione"], "svincolo")
             self.assertIn("Released", op.operation_snapshot)
+        finally:
+            session.close()
+
+    def test_svincolo_fine_contratto_removes_expired_players_without_crediting_fm(self):
+        team_id = self.seed_team("Team A", fm=100)
+        june_player_id = self.seed_player(
+            nome="June Expired",
+            squadra="Team A",
+            valore_svincolo=75,
+            scadenza=datetime.date(2027, 6, 30),
+            fantasquadra_id=team_id,
+        )
+        future_player_id = self.seed_player(
+            nome="Future Contract",
+            squadra="Team A",
+            valore_svincolo=120,
+            scadenza=datetime.date(2028, 6, 30),
+            fantasquadra_id=team_id,
+        )
+
+        result = self.service.svincola_fine_contratto(
+            SvincoloFineContrattoCommand(
+                stagione_id=1,
+                stagione_codice="2026/2027",
+                anno_fine=2027,
+                mese_regolamento=6,
+            )
+        )
+
+        session = self.Session()
+        try:
+            team = session.query(Fantasquadra).filter_by(id=team_id).one()
+            op = session.query(Operazione).filter_by(
+                tipo_operazione="svincolo fine contratto"
+            ).one()
+            snapshot = json.loads(op.operation_snapshot)
+
+            self.assertEqual(result.giocatori_svincolati, 1)
+            self.assertEqual(team.fm, 100)
+            self.assertEqual(session.query(Giocatore).filter_by(id=june_player_id).count(), 0)
+            self.assertEqual(session.query(Giocatore).filter_by(id=future_player_id).count(), 1)
+            self.assertEqual(op.conguaglio, 0)
+            self.assertEqual(op.fase_stagione, "fase_3_fine_stagione")
+            self.assertEqual(op.periodo_regolamento, "Fine stagione 2026/2027")
+            self.assertEqual(op.mese_regolamento, "Giugno")
+            self.assertEqual(snapshot["extra"]["accredito_fm"], 0)
+            self.assertEqual(snapshot["extra"]["giocatori_svincolati"], 1)
         finally:
             session.close()
 

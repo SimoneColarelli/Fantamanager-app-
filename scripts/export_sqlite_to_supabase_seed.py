@@ -95,6 +95,10 @@ TABLE_COLUMNS = {
         "conguaglio_da_id",
         "data",
         "clausole",
+        "stagione_id",
+        "fase_stagione",
+        "periodo_regolamento",
+        "mese_regolamento",
         "operation_snapshot",
     ),
     "operazione_giocatori": (
@@ -165,6 +169,7 @@ NUMERIC_COLUMNS = {
     ("operazioni", "fantasquadra_b_id"),
     ("operazioni", "conguaglio"),
     ("operazioni", "conguaglio_da_id"),
+    ("operazioni", "stagione_id"),
     ("operazione_giocatori", "operazione_id"),
     ("operazione_giocatori", "giocatore_id"),
     ("entity_versions", "entity_id"),

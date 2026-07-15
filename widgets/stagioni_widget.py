@@ -5,6 +5,7 @@ import datetime as dt
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDateEdit,
     QFormLayout,
     QFrame,
@@ -21,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from services.backup_service import BackupService, SEASONAL_BACKUPS
+from services.mercato_commands import SvincoloFineContrattoCommand
+from services.mercato_service import MercatoService
 from services.quotazioni_service import QuotazioniService
 from services.stagione_service import (
     ActiveStagioneExistsError,
@@ -68,6 +71,11 @@ PHASE_UPDATE_ACTIONS = {
     ),
 }
 
+PHASE_AUCTION_ACTIONS = {
+    "fase_1_estiva": ("Esporta rose per asta", "Importa asta estiva"),
+    "fase_2_invernale": ("Esporta rose per asta", "Importa asta invernale"),
+}
+
 
 def _date_to_qdate(value: dt.date | None) -> QDate:
     value = value or dt.date.today()
@@ -99,16 +107,20 @@ class StagioniWidget(QWidget):
         service: StagioneService,
         backup_service: BackupService,
         quotazioni_service: QuotazioniService | None = None,
+        mercato_service: MercatoService | None = None,
         quotazioni_provider=None,
         refresh_callback=None,
+        show_mercato_callback=None,
         parent=None,
     ):
         super().__init__(parent)
         self.service = service
         self.backup_service = backup_service
         self.quotazioni_service = quotazioni_service
+        self.mercato_service = mercato_service
         self.quotazioni_provider = quotazioni_provider
         self.refresh_callback = refresh_callback
+        self.show_mercato_callback = show_mercato_callback
         self._active: StagioneDTO | None = None
         self._phase_controls: dict[str, dict[str, _OptionalDateControl]] = {}
         self._build_ui()
@@ -240,6 +252,12 @@ class StagioniWidget(QWidget):
         update_row = self._update_button(fase.codice_fase)
         if update_row:
             layout.addRow("Update", update_row)
+        auction_row = self._auction_buttons(fase.codice_fase)
+        if auction_row:
+            layout.addRow("Asta", auction_row)
+        end_season_row = self._end_season_buttons(fase.codice_fase)
+        if end_season_row:
+            layout.addRow("Fine contratto", end_season_row)
         backup_row = self._backup_buttons(fase.codice_fase)
         if backup_row:
             layout.addRow("Backup", backup_row)
@@ -422,4 +440,141 @@ class StagioniWidget(QWidget):
             self,
             "Update completato",
             f"{update_message}\n\n{backup_result.message}\n\n{paths}",
+        )
+
+    def _end_season_buttons(self, codice_fase: str) -> QWidget | None:
+        if codice_fase != "fase_3_fine_stagione":
+            return None
+
+        wrapper = QWidget()
+        layout = QHBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        month_combo = QComboBox()
+        month_combo.addItem("Maggio", userData=5)
+        month_combo.addItem("Giugno", userData=6)
+        month_combo.setCurrentIndex(1)
+        layout.addWidget(month_combo)
+
+        button = QPushButton("Svincola contratti scaduti")
+        button.clicked.connect(
+            lambda checked=False, combo=month_combo: self._run_svincolo_fine_contratto(combo)
+        )
+        layout.addWidget(button)
+        layout.addStretch()
+        return wrapper
+
+    def _run_svincolo_fine_contratto(self, month_combo: QComboBox):
+        if not self._active:
+            return
+        if not self.mercato_service:
+            QMessageBox.warning(
+                self,
+                "Service non configurato",
+                "Il service mercato non e' disponibile.",
+            )
+            return
+
+        mese = int(month_combo.currentData())
+        mese_label = month_combo.currentText()
+        reply = QMessageBox.question(
+            self,
+            "Conferma svincolo",
+            "Questa operazione svincolera' i giocatori con contratto scaduto "
+            f"nella stagione {self._active.codice}, senza accredito FM, e "
+            "creera' il backup di fine stagione. Vuoi continuare?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            result = self.mercato_service.svincola_fine_contratto(
+                SvincoloFineContrattoCommand(
+                    stagione_id=self._active.id,
+                    stagione_codice=self._active.codice,
+                    anno_fine=self._active.anno_fine,
+                    mese_regolamento=mese,
+                )
+            )
+            if result.giocatori_svincolati == 0:
+                QMessageBox.information(
+                    self,
+                    "Nessuno svincolo",
+                    "Non ci sono giocatori con contratto in scadenza per "
+                    f"la stagione {self._active.codice}.",
+                )
+                return
+
+            backup_result = self.backup_service.create_season_backup(
+                self._active,
+                "fine_stagione",
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                "Errore fine stagione",
+                f"Svincolo contratti scaduti fallito: {exc}",
+            )
+            return
+
+        if self.refresh_callback:
+            self.refresh_callback()
+        else:
+            self.refresh()
+
+        paths = "\n".join(str(path) for path in backup_result.paths)
+        QMessageBox.information(
+            self,
+            "Svincoli completati",
+            f"Giocatori svincolati: {result.giocatori_svincolati}\n"
+            f"Fantasquadre coinvolte: {result.fantasquadre_coinvolte}\n"
+            f"Contesto regolamentare: Fine stagione {self._active.codice} - {mese_label}"
+            f"\n\n{backup_result.message}\n\n{paths}",
+        )
+
+    def _auction_buttons(self, codice_fase: str) -> QWidget | None:
+        labels = PHASE_AUCTION_ACTIONS.get(codice_fase)
+        if not labels:
+            return None
+
+        export_label, import_label = labels
+        wrapper = QWidget()
+        layout = QHBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        export_btn = QPushButton(export_label)
+        export_btn.clicked.connect(
+            lambda checked=False, phase_code=codice_fase: self._export_rosters_for_asta(phase_code)
+        )
+        layout.addWidget(export_btn)
+
+        import_btn = QPushButton(import_label)
+        import_btn.clicked.connect(self._go_to_mercato_for_asta)
+        layout.addWidget(import_btn)
+        layout.addStretch()
+        return wrapper
+
+    def _export_rosters_for_asta(self, phase_code: str):
+        if not self._active:
+            return
+        try:
+            result = self.backup_service.export_rosters_for_asta(self._active, phase_code)
+        except Exception as exc:
+            QMessageBox.critical(self, "Errore export asta", f"Export fallito: {exc}")
+            return
+
+        paths = "\n".join(str(path) for path in result.paths)
+        QMessageBox.information(self, "Export asta", f"{result.message}\n\n{paths}")
+
+    def _go_to_mercato_for_asta(self):
+        if self.show_mercato_callback:
+            self.show_mercato_callback()
+        QMessageBox.information(
+            self,
+            "Importa asta",
+            "Usa il tab Mercato e la sezione Importa asta per completare l'import.",
         )

@@ -158,7 +158,8 @@ class Repository:
                 return None
             month_num = months[month_abbr]
             year_full = 2000 + int(year_short)
-            return date(year_full, month_num, 1)
+            day = 30 if month_abbr == "giu" else 1
+            return date(year_full, month_num, day)
         except (ValueError, AttributeError, IndexError):
             return None
     
