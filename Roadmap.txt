@@ -89,6 +89,27 @@ Next features:
 	- active loans list includes source team, destination team and dates
 	- operational alerts only show contracts expiring within 1 year
 	- side section includes league totals plus Top FM, Top patrimoni and Top valore rosa
+- Stagioni feature STARTED:
+	- Step 1 domain foundations IMPLEMENTED
+	- added `Stagione`, `StagioneFase`, `StagioneFile`, `StagioneStepLog`
+	- added SQLite migration `008_stagioni`
+	- added Supabase migration `20260715000100_stagioni.sql`
+	- added minimal `StagioneService`
+	- updated seed export and snapshot sync for remote persistence
+	- Step 2 tab `Stagioni` IMPLEMENTED
+	- added `StagioniWidget`
+	- mounted the `Stagioni` tab in `MainWindow`
+	- UI can create an active season and edit season/phase/auction dates
+	- Step 3 backup service IMPLEMENTED
+	- added `BackupService`
+	- `DataManager.export_data` delegates to the shared backup service
+	- seasonal backup buttons write deterministic JSON files in phase folders
+	- generated seasonal backup files are registered in `stagione_files`
+	- Step 4 quotazioni/update service IMPLEMENTED
+	- added `QuotazioniService`
+	- menu update actions and seasonal update buttons share the same service
+	- seasonal update buttons trigger the coherent automatic backup
+	- next step: add season context fields to market operations
 
 In client app:
 - fix simulatore behaviour: when calculating a cessione without contropartite (Team B pays N fm for players of Team A), throw a warning if the amount of FM is less then the sum of valore svincolo of players

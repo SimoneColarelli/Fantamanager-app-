@@ -8,6 +8,7 @@ from PySide6.QtCore import QDir, Signal
 # --- ADJUST THESE IMPORTS TO MATCH YOUR PROJECT STRUCTURE ---
 from database import SessionLocal, engine, Base
 from models import * # Import all models to ensure they are registered in Base
+from services.backup_service import BackupService
 # -----------------------------------------------------------
 
 class DataManager:
@@ -19,12 +20,7 @@ class DataManager:
         """
         Retrieves all SQLAlchemy models registered with Base.
         """
-        # For SQLAlchemy 1.4+
-        if hasattr(Base, 'registry'):
-            return [mapper.class_ for mapper in Base.registry.mappers]
-        # Fallback for older versions
-        else:
-            return [c for c in Base._decl_class_registry.values() if isinstance(c, type) and issubclass(c, Base)]
+        return BackupService.get_all_models()
 
     @staticmethod
     def model_to_dict(obj):
@@ -32,49 +28,17 @@ class DataManager:
         Converts a SQLAlchemy model instance to a dictionary.
         Handles datetime serialization.
         """
-        data = {}
-        mapper = inspect(obj).mapper
-        for col in mapper.column_attrs:
-            val = getattr(obj, col.key)
-            if isinstance(val, (datetime.date, datetime.datetime)):
-                val = val.isoformat()
-            data[col.key] = val
-        return data
+        return BackupService.model_to_dict(obj)
 
     @staticmethod
     def export_data(filepath, models=None):
         """
         Exports data from specified models (or all if None) to a JSON file.
         """
-        session: Session = SessionLocal()
         try:
-            target_models = models if models else DataManager.get_all_models()
-            export_dict = {}
-
-            for model in target_models:
-                table_name = model.__tablename__
-                records = session.query(model).all()
-                export_dict[table_name] = [DataManager.model_to_dict(r) for r in records]
-
-            # Export the operazione_giocatori association table separately
-            # (it is a plain Table, not an ORM class, so it is invisible to get_all_models)
-            try:
-                from sqlalchemy import text as _text
-                rows = session.execute(_text("SELECT operazione_id, giocatore_id FROM operazione_giocatori")).fetchall()
-                export_dict["operazione_giocatori"] = [
-                    {"operazione_id": r[0], "giocatore_id": r[1]} for r in rows
-                ]
-            except Exception:
-                pass
-
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(export_dict, f, indent=4, ensure_ascii=False)
-            
-            return True, "Backup creato correttamente."
+            return BackupService(SessionLocal).export_data(filepath, models=models)
         except Exception as e:
             return False, str(e)
-        finally:
-            session.close()
 
     @staticmethod
     def import_data(filepath, specific_table=None):

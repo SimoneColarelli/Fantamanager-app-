@@ -14,6 +14,7 @@ MIGRATIONS = (
     "migrations.005_normalize_giocatore_team_refs",
     "migrations.006_operation_snapshot",
     "migrations.007_integer_economic_values",
+    "migrations.008_stagioni",
 )
 
 

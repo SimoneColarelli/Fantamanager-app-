@@ -63,6 +63,7 @@ class MigrationRunnerTests(unittest.TestCase):
                 "005_normalize_giocatore_team_refs",
                 "006_operation_snapshot",
                 "007_integer_economic_values",
+                "008_stagioni",
             ]
             self.assertEqual(first, expected_revisions)
             self.assertEqual(second, [])
@@ -75,6 +76,33 @@ class MigrationRunnerTests(unittest.TestCase):
             self.assertIn("operation_type", {row[1] for row in semantic_columns})
             self.assertIn("inverse_action_type", {row[1] for row in semantic_columns})
             self.assertIn("inverse_payload", {row[1] for row in semantic_columns})
+
+            with engine.connect() as connection:
+                stagione_tables = connection.execute(
+                    text(
+                        """
+                        SELECT name
+                        FROM sqlite_master
+                        WHERE type = 'table'
+                          AND name IN (
+                              'stagioni',
+                              'stagione_fasi',
+                              'stagione_files',
+                              'stagione_step_log'
+                          )
+                        ORDER BY name
+                        """
+                    )
+                ).fetchall()
+            self.assertEqual(
+                [row[0] for row in stagione_tables],
+                [
+                    "stagione_fasi",
+                    "stagione_files",
+                    "stagione_step_log",
+                    "stagioni",
+                ],
+            )
         finally:
             engine.dispose()
 

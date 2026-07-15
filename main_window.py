@@ -17,9 +17,13 @@ from table_with_edit_buttons import TableWithEditButtons
 from data_manager import DataManagerUI
 from operazione_repository import OperazioneRepository
 from mercato_widget import MercatoWidget
+from services.backup_service import BackupService
 from services.dashboard_service import DashboardService
+from services.quotazioni_service import QuotazioniService
+from services.stagione_service import StagioneService
 from undo_manager import UndoManager
 from widgets.dashboard_widget import DashboardWidget
+from widgets.stagioni_widget import StagioniWidget
 from migration_runner import run_migrations
 from persistence import (
     SemanticUndoConflict,
@@ -267,6 +271,7 @@ class MainWindow(QMainWindow):
 
         # === VARIABILE DI STATO DELLE QUOTAZIONI ===
         self.quotazioni_data = {}
+        self.quotazioni_service = QuotazioniService(SessionLocal)
         
         # === BARRA GRAFICA QUOTAZIONI ===
         self.quotazioni_bar = QWidget()
@@ -431,6 +436,15 @@ class MainWindow(QMainWindow):
         # ========== DASHBOARD TAB ==========
         self.dashboard_widget = DashboardWidget(DashboardService(SessionLocal))
 
+        # ========== STAGIONI TAB ==========
+        self.stagioni_widget = StagioniWidget(
+            StagioneService(SessionLocal),
+            BackupService(SessionLocal),
+            quotazioni_service=self.quotazioni_service,
+            quotazioni_provider=lambda: self.quotazioni_data,
+            refresh_callback=self._refresh_after_service_write,
+        )
+
         # When giocatori or fantasquadre change, keep mercato combos in sync
         self.g_model.rows_committed.connect(self.mercato_widget.refresh_combos)
         self.f_model.rows_committed.connect(self.mercato_widget.refresh_combos)
@@ -456,6 +470,7 @@ class MainWindow(QMainWindow):
 
         # ========== ADD TABS ==========
         self.tabs.addTab(self.dashboard_widget, "Dashboard")
+        self.tabs.addTab(self.stagioni_widget, "Stagioni")
         self.tabs.addTab(g_splitter, "Giocatori")
         self.tabs.addTab(f_splitter, "Fantasquadre")
         self.tabs.addTab(self.mercato_widget, "⚽ Mercato")
@@ -488,6 +503,17 @@ class MainWindow(QMainWindow):
 
         self.setup_menu()
 
+    def _expire_repo_sessions(self):
+        for repo in getattr(self, "_repos", []):
+            try:
+                repo.session.expire_all()
+            except Exception:
+                pass
+
+    def _refresh_after_service_write(self):
+        self._expire_repo_sessions()
+        self.refresh_all_data()
+
     def refresh_all_data(self):
         self.g_model.refresh()
         self.g_deleted_widget.refresh()
@@ -498,6 +524,8 @@ class MainWindow(QMainWindow):
         self.mercato_widget._refresh_history()
         if hasattr(self, "dashboard_widget"):
             self.dashboard_widget.refresh()
+        if hasattr(self, "stagioni_widget"):
+            self.stagioni_widget.refresh()
         # Keep undo action in sync
         if hasattr(self, "_undo_mgr"):
             self._update_undo_action()
@@ -728,53 +756,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Dati Cancellati", "Le quotazioni sono state rimosse correttamente.")
 
     def _calculate_update_value(self, dq, spesa):
-        new_current_value = spesa if spesa is not None else 0
-        dq = dq if dq is not None else 0
-        delta_abs = abs(dq)
-        delta_sign = 1 if dq > 0 else -1
-        
-        if dq == 0:
-            return new_current_value
-            
-        for i in range(delta_abs, 0, -1):
-            if 1 <= new_current_value <= 49:
-                if delta_sign == -1:
-                    new_current_value = new_current_value - 3 * delta_abs
-                    break
-                else:
-                    new_current_value += 21.5
-            elif 50 <= new_current_value <= 99:
-                if delta_sign == -1:
-                    new_current_value = new_current_value - 8 * delta_abs
-                    break
-                else:
-                    new_current_value += 18
-            elif 100 <= new_current_value <= 199:
-                if delta_sign == -1:
-                    new_current_value = new_current_value - 12 * delta_abs
-                    break
-                else:
-                    new_current_value += 12
-            elif 200 <= new_current_value <= 399:
-                if delta_sign == -1:
-                    new_current_value = new_current_value - 18 * delta_abs
-                    break
-                else:
-                    new_current_value += 8
-            elif 400 <= new_current_value <= 599:
-                if delta_sign == -1:
-                    new_current_value = new_current_value - 21.5 * delta_abs
-                    break
-                else:
-                    new_current_value += 3
-            elif 600 <= new_current_value <= 99999:
-                if delta_sign == -1:
-                    new_current_value = new_current_value - 30 * delta_abs
-                    break
-                else:
-                    new_current_value += 1
-                    
-        return new_current_value if new_current_value > 0 else 1
+        return QuotazioniService.calculate_update_value(dq, spesa)
 
     def _check_prerequisites(self):
         if not hasattr(self, 'quotazioni_data') or not self.quotazioni_data:
@@ -792,31 +774,15 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.StandardButton.Yes: return
 
-        base_model = self.get_giocatori_base_model()
-        session = base_model.repo.session #type: ignore
-        giocatori = session.query(Giocatore).all()
-
-        for g in giocatori:
-            if g.nome not in self.quotazioni_data:
-                g.in_serie_a = False
-                g.convocato = False
-                continue
-            
-            g.in_serie_a = True
-            nuova_quotazione = self.quotazioni_data[g.nome]
-            vecchia_quotazione = g.quotazione if g.quotazione is not None else 0
-            partial_dq = nuova_quotazione - vecchia_quotazione
-            g.quotazione = nuova_quotazione
-            
-            if not g.in_prestito_a:
-                valore_dq_attuale = g.dq if g.dq is not None else 0
-                g.dq = valore_dq_attuale + partial_dq
-                spesa = g.spesa if g.spesa is not None else 1
-                g.valore_svincolo = self._calculate_update_value(g.dq, spesa)
-            
-        session.commit()
-        base_model.refresh() #type: ignore
-        QMessageBox.information(self, "Successo", "Complete Update completato con successo!")
+        result = self.quotazioni_service.complete_update(self.quotazioni_data)
+        self._refresh_after_service_write()
+        QMessageBox.information(
+            self,
+            "Successo",
+            "Complete Update completato con successo!\n"
+            f"Giocatori presenti: {result.presenti}\n"
+            f"Giocatori assenti: {result.assenti}",
+        )
 
     def _quotazioni_update(self):
         if not self._check_prerequisites(): return
@@ -828,21 +794,14 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.StandardButton.Yes: return
 
-        base_model = self.get_giocatori_base_model()
-        session = base_model.repo.session #type: ignore
-        giocatori = session.query(Giocatore).all()
-
-        for g in giocatori:
-            if g.nome not in self.quotazioni_data:
-                g.in_serie_a = False
-                g.convocato = False
-                continue
-            g.in_serie_a = True
-            g.quotazione = self.quotazioni_data[g.nome]
-            
-        session.commit()
-        base_model.refresh() #type: ignore
-        QMessageBox.information(self, "Successo", "Quotazioni Update completato con successo!")
+        result = self.quotazioni_service.quotazioni_update(self.quotazioni_data)
+        self._refresh_after_service_write()
+        QMessageBox.information(
+            self,
+            "Successo",
+            "Quotazioni Update completato con successo!\n"
+            f"Quotazioni aggiornate: {result.quotazioni_aggiornate}",
+        )
 
     def _serie_a_update(self):
         if not self._check_prerequisites(): return
@@ -854,20 +813,15 @@ class MainWindow(QMainWindow):
         )
         if reply != QMessageBox.StandardButton.Yes: return
 
-        base_model = self.get_giocatori_base_model()
-        session = base_model.repo.session #type: ignore
-        giocatori = session.query(Giocatore).all()
-
-        for g in giocatori:
-            if g.nome in self.quotazioni_data:
-                g.in_serie_a = True
-            else:
-                g.in_serie_a = False
-                g.convocato = False
-                
-        session.commit()
-        base_model.refresh() #type: ignore
-        QMessageBox.information(self, "Successo", "Serie A Update completato con successo!")
+        result = self.quotazioni_service.serie_a_update(self.quotazioni_data)
+        self._refresh_after_service_write()
+        QMessageBox.information(
+            self,
+            "Successo",
+            "Serie A Update completato con successo!\n"
+            f"Giocatori presenti: {result.presenti}\n"
+            f"Giocatori assenti: {result.assenti}",
+        )
 
 
     def _set_convocato_bulk(self, value: bool):

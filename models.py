@@ -1,4 +1,15 @@
-from sqlalchemy import Column, Integer, String, Boolean, Date, ForeignKey, Table, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -57,6 +68,95 @@ class Fantasquadra(Base):
     coppe = Column(Integer, default=0)
     supercoppe = Column(Integer, default=0)
     deleted = Column(Boolean, default=False)
+
+
+class Stagione(Base):
+    __tablename__ = "stagioni"
+
+    id = Column(Integer, primary_key=True)
+    codice = Column(String, nullable=False, unique=True)
+    anno_inizio = Column(Integer, nullable=False)
+    anno_fine = Column(Integer, nullable=False)
+    data_inizio = Column(Date, nullable=False)
+    data_fine = Column(Date, nullable=True)
+    stato = Column(String, nullable=False, default="attiva")
+    fase_corrente = Column(String, nullable=True)
+    storage_path = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+    deleted = Column(Boolean, default=False)
+
+    fasi = relationship(
+        "StagioneFase",
+        back_populates="stagione",
+        cascade="all, delete-orphan",
+    )
+    files = relationship(
+        "StagioneFile",
+        back_populates="stagione",
+        cascade="all, delete-orphan",
+    )
+    step_logs = relationship(
+        "StagioneStepLog",
+        back_populates="stagione",
+        cascade="all, delete-orphan",
+    )
+
+
+class StagioneFase(Base):
+    __tablename__ = "stagione_fasi"
+    __table_args__ = (
+        UniqueConstraint("stagione_id", "codice_fase", name="uq_stagione_fase"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    stagione_id = Column(Integer, ForeignKey("stagioni.id"), nullable=False)
+    codice_fase = Column(String, nullable=False)
+    nome = Column(String, nullable=False)
+    data_inizio = Column(Date, nullable=True)
+    data_fine = Column(Date, nullable=True)
+    stato = Column(String, nullable=False, default="pianificata")
+    asta_data_inizio = Column(Date, nullable=True)
+    asta_data_fine = Column(Date, nullable=True)
+    created_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+
+    stagione = relationship("Stagione", back_populates="fasi")
+    files = relationship("StagioneFile", back_populates="fase")
+    step_logs = relationship("StagioneStepLog", back_populates="fase")
+
+
+class StagioneFile(Base):
+    __tablename__ = "stagione_files"
+
+    id = Column(Integer, primary_key=True)
+    stagione_id = Column(Integer, ForeignKey("stagioni.id"), nullable=False)
+    fase_id = Column(Integer, ForeignKey("stagione_fasi.id"), nullable=True)
+    tipo_file = Column(String, nullable=False)
+    nome_logico = Column(String, nullable=False)
+    path = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=True)
+    note = Column(Text, nullable=True)
+
+    stagione = relationship("Stagione", back_populates="files")
+    fase = relationship("StagioneFase", back_populates="files")
+
+
+class StagioneStepLog(Base):
+    __tablename__ = "stagione_step_log"
+
+    id = Column(Integer, primary_key=True)
+    stagione_id = Column(Integer, ForeignKey("stagioni.id"), nullable=False)
+    fase_id = Column(Integer, ForeignKey("stagione_fasi.id"), nullable=True)
+    step_key = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=True)
+
+    stagione = relationship("Stagione", back_populates="step_logs")
+    fase = relationship("StagioneFase", back_populates="step_logs")
 
 
 TIPI_OPERAZIONE = [

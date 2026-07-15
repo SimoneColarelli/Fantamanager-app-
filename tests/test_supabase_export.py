@@ -16,6 +16,58 @@ class SupabaseSeedExporterTests(unittest.TestCase):
     def _create_schema(self):
         self.conn.executescript(
             """
+            create table stagioni (
+                id integer primary key,
+                codice varchar not null,
+                anno_inizio integer not null,
+                anno_fine integer not null,
+                data_inizio date not null,
+                data_fine date,
+                stato varchar not null,
+                fase_corrente varchar,
+                storage_path text not null,
+                created_at timestamp,
+                updated_at timestamp,
+                deleted boolean
+            );
+
+            create table stagione_fasi (
+                id integer primary key,
+                stagione_id integer not null,
+                codice_fase varchar not null,
+                nome varchar not null,
+                data_inizio date,
+                data_fine date,
+                stato varchar not null,
+                asta_data_inizio date,
+                asta_data_fine date,
+                created_at timestamp,
+                updated_at timestamp
+            );
+
+            create table stagione_files (
+                id integer primary key,
+                stagione_id integer not null,
+                fase_id integer,
+                tipo_file varchar not null,
+                nome_logico varchar not null,
+                path text not null,
+                created_at timestamp,
+                note text
+            );
+
+            create table stagione_step_log (
+                id integer primary key,
+                stagione_id integer not null,
+                fase_id integer,
+                step_key varchar not null,
+                status varchar not null,
+                started_at timestamp,
+                completed_at timestamp,
+                error_message text,
+                metadata_json text
+            );
+
             create table fantasquadre (
                 id integer primary key,
                 nome varchar not null,
@@ -98,6 +150,67 @@ class SupabaseSeedExporterTests(unittest.TestCase):
     def test_seed_skips_orphan_operation_players(self):
         self.conn.execute(
             """
+            insert into stagioni
+                (
+                    id, codice, anno_inizio, anno_fine, data_inizio,
+                    data_fine, stato, fase_corrente, storage_path,
+                    created_at, updated_at, deleted
+                )
+            values
+                (
+                    1, '2026/2027', 2026, 2027, '2026-08-01',
+                    null, 'attiva', 'fase_1_estiva', 'Stagioni/2026-2027',
+                    '2026-07-15 12:00:00', '2026-07-15 12:00:00', 0
+                )
+            """
+        )
+        self.conn.execute(
+            """
+            insert into stagione_fasi
+                (
+                    id, stagione_id, codice_fase, nome, data_inizio,
+                    data_fine, stato, asta_data_inizio, asta_data_fine,
+                    created_at, updated_at
+                )
+            values
+                (
+                    2, 1, 'fase_1_estiva',
+                    'Inizio stagione - sessione mercato estiva',
+                    '2026-08-01', null, 'aperta', null, null,
+                    '2026-07-15 12:00:00', '2026-07-15 12:00:00'
+                )
+            """
+        )
+        self.conn.execute(
+            """
+            insert into stagione_files
+                (id, stagione_id, fase_id, tipo_file, nome_logico, path, created_at, note)
+            values
+                (
+                    3, 1, 2, 'quotazioni_iniziali',
+                    'Quotazioni iniziali stagione 2026/2027',
+                    'Stagioni/2026-2027/01_fase_estiva/quotazioni/file.xlsx',
+                    '2026-07-15 12:00:00', null
+                )
+            """
+        )
+        self.conn.execute(
+            """
+            insert into stagione_step_log
+                (
+                    id, stagione_id, fase_id, step_key, status,
+                    started_at, completed_at, error_message, metadata_json
+                )
+            values
+                (
+                    4, 1, 2, 'crea_stagione', 'completed',
+                    '2026-07-15 12:00:00', '2026-07-15 12:00:01',
+                    null, '{"codice": "2026/2027"}'
+                )
+            """
+        )
+        self.conn.execute(
+            """
             insert into fantasquadre
                 (id, nome, fm, campionati, coppe, supercoppe, deleted)
             values
@@ -172,6 +285,10 @@ class SupabaseSeedExporterTests(unittest.TestCase):
         seed_sql, counts, skipped_rows = build_seed(self.conn, truncate=False)
 
         self.assertEqual(counts["operazione_giocatori"], 1)
+        self.assertEqual(counts["stagioni"], 1)
+        self.assertEqual(counts["stagione_fasi"], 1)
+        self.assertEqual(counts["stagione_files"], 1)
+        self.assertEqual(counts["stagione_step_log"], 1)
         self.assertEqual(counts["entity_versions"], 1)
         self.assertEqual(counts["semantic_undo_log"], 1)
         self.assertEqual(skipped_rows, [(99, 10, "missing operazione")])
@@ -187,6 +304,10 @@ class SupabaseSeedExporterTests(unittest.TestCase):
             seed_sql,
         )
         self.assertIn("insert into public.semantic_undo_log", seed_sql)
+        self.assertIn("insert into public.stagioni", seed_sql)
+        self.assertIn("insert into public.stagione_fasi", seed_sql)
+        self.assertIn("insert into public.stagione_files", seed_sql)
+        self.assertIn("insert into public.stagione_step_log", seed_sql)
         self.assertNotIn(
             "insert into public.operazione_giocatori "
             "(operazione_id, giocatore_id) values (99, 10);",

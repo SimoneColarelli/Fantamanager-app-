@@ -8,12 +8,24 @@ truncate table
     public.operazione_giocatori,
     public.operazioni,
     public.giocatori,
-    public.fantasquadre
+    public.fantasquadre,
+    public.stagione_step_log,
+    public.stagione_files,
+    public.stagione_fasi,
+    public.stagioni
 restart identity cascade;
 
 -- Skipped invalid operazione_giocatori rows:
 -- operazione_id=13, giocatore_id=127: missing operazione
 -- operazione_id=13, giocatore_id=262: missing operazione
+
+-- stagioni: 0 rows
+
+-- stagione_fasi: 0 rows
+
+-- stagione_files: 0 rows
+
+-- stagione_step_log: 0 rows
 
 -- fantasquadre: 8 rows
 insert into public.fantasquadre (id, nome, fm, campionati, coppe, supercoppe, deleted) values (1, 'Zarro Team', 1518, 0, 0, 0, false);
@@ -406,6 +418,10 @@ insert into public.operazione_giocatori (operazione_id, giocatore_id) values (12
 -- semantic_undo_log: 0 rows
 
 -- Align identity sequences after explicit ID inserts.
+select setval(pg_get_serial_sequence('public.stagioni', 'id'), greatest(coalesce((select max(id) from public.stagioni), 1), 1), (select count(*) > 0 from public.stagioni));
+select setval(pg_get_serial_sequence('public.stagione_fasi', 'id'), greatest(coalesce((select max(id) from public.stagione_fasi), 1), 1), (select count(*) > 0 from public.stagione_fasi));
+select setval(pg_get_serial_sequence('public.stagione_files', 'id'), greatest(coalesce((select max(id) from public.stagione_files), 1), 1), (select count(*) > 0 from public.stagione_files));
+select setval(pg_get_serial_sequence('public.stagione_step_log', 'id'), greatest(coalesce((select max(id) from public.stagione_step_log), 1), 1), (select count(*) > 0 from public.stagione_step_log));
 select setval(pg_get_serial_sequence('public.fantasquadre', 'id'), greatest(coalesce((select max(id) from public.fantasquadre), 1), 1), (select count(*) > 0 from public.fantasquadre));
 select setval(pg_get_serial_sequence('public.giocatori', 'id'), greatest(coalesce((select max(id) from public.giocatori), 1), 1), (select count(*) > 0 from public.giocatori));
 select setval(pg_get_serial_sequence('public.operazioni', 'id'), greatest(coalesce((select max(id) from public.operazioni), 1), 1), (select count(*) > 0 from public.operazioni));

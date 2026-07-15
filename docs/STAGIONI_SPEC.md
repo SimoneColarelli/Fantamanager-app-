@@ -867,7 +867,7 @@ toccati e delle operazioni generate.
 
 ## 15. Roadmap implementativa consigliata
 
-### Step 1: fondazioni dominio
+### Step 1: fondazioni dominio. IMPLEMENTATO
 
 - Aggiungere modelli `Stagione`, `StagioneFase`, `StagioneFile`,
   `StagioneStepLog`.
@@ -875,7 +875,16 @@ toccati e delle operazioni generate.
 - Aggiungere service minimo `StagioneService`.
 - Aggiungere test su creazione stagione, codice stagione e fasi.
 
-### Step 2: tab Stagioni
+Stato implementazione:
+
+- aggiunti modelli SQLAlchemy in `models.py`;
+- aggiunta migrazione SQLite `008_stagioni`;
+- aggiunta migrazione Supabase `20260715000100_stagioni.sql`;
+- aggiunto `services/stagione_service.py`;
+- aggiunti test `tests/test_stagione_service.py`;
+- aggiornati seed exporter e snapshot sync per includere le nuove tabelle.
+
+### Step 2: tab Stagioni. IMPLEMENTATO
 
 - Creare `StagioniWidget`.
 - Aggiungere tab `Stagioni` in `MainWindow`.
@@ -884,13 +893,34 @@ toccati e delle operazioni generate.
 - Consentire modifica date fasi/aste.
 - Creare cartelle stagionali.
 
-### Step 3: backup service
+Stato implementazione:
+
+- aggiunto `widgets/stagioni_widget.py`;
+- aggiunto tab `Stagioni` in `MainWindow`;
+- se non esiste una stagione attiva, il tab mostra il form `Inizia nuova stagione`;
+- se esiste una stagione attiva, il tab mostra dashboard con stato, fase corrente,
+  cartella storage e date;
+- implementata modifica date stagione, date fasi e date aste;
+- la creazione stagione usa `StagioneService` e crea la struttura cartelle.
+
+### Step 3: backup service. IMPLEMENTATO
 
 - Estrarre logica backup da `DataManagerUI`.
 - Consentire export programmato verso path esplicito.
 - Collegare i primi pulsanti backup nel tab `Stagioni`.
 
-### Step 4: quotazioni service
+Stato implementazione:
+
+- aggiunto `services/backup_service.py`;
+- `DataManager.export_data` delega al nuovo `BackupService`;
+- aggiunti backup stagionali deterministici per fase;
+- i backup stagionali vengono salvati nella sottocartella `backup` della fase;
+- ogni file generato viene registrato in `stagione_files`;
+- aggiunti pulsanti backup nel tab `Stagioni` per fase estiva, fase invernale e
+  fine stagione;
+- aggiunti test `tests/test_backup_service.py`.
+
+### Step 4: quotazioni service. IMPLEMENTATO
 
 - Estrarre update quotazioni/Serie A/complete update da `MainWindow`.
 - Far chiamare lo stesso service da menu `Updates` e tab `Stagioni`.
@@ -898,6 +928,18 @@ toccati e delle operazioni generate.
   - update inizio stagione;
   - update inizio sessione invernale;
   - update fine stagione.
+
+Stato implementazione:
+
+- aggiunto `services/quotazioni_service.py`;
+- i comandi menu `Complete Update`, `Quotazioni Update` e `Serie A Update`
+  chiamano il nuovo service;
+- il tab `Stagioni` espone pulsanti update nella fase corretta;
+- `Aggiorna inizio stagione` esegue update quotazioni + presenza Serie A;
+- `Aggiorna inizio sessione invernale` esegue complete update;
+- `Aggiorna fine stagione` esegue complete update;
+- dopo ogni update stagionale viene creato il backup coerente della fase;
+- aggiunti test `tests/test_quotazioni_service.py`.
 
 ### Step 5: contesto mercato
 
@@ -922,23 +964,33 @@ toccati e delle operazioni generate.
 - Registrare audit/semantic undo.
 - Generare backup operazioni fine stagione.
 
-## 16. Questioni aperte
+## 16. Decisioni e questioni aperte
+
+### 16.1 Questioni ancora aperte
 
 1. Formato export rose per asta.
    Va definito quando verra' implementato il bottone `Esporta rose per asta`.
 
-2. Cartella `Stagioni/`.
-   Per ora puo' stare nella root progetto; in futuro potrebbe essere
-   configurabile.
+### 16.2 Decisioni confermate
 
-3. Operazioni fuori sessione.
-   Va deciso se consentire operazioni di mercato quando lo stato e'
-   `campionato in corso`.
+1. Cartella `Stagioni/`.
+   Per ora resta nella root del progetto.
 
-4. Chiusura stagione.
-   Va definito se la chiusura finale deve bloccare ogni modifica o solo marcare
-   la stagione come chiusa.
+2. Operazioni fuori sessione.
+   Sono consentite anche quando lo stato e' `campionato in corso`.
+   Devono essere datate nel contesto regolamentare dell'ultimo mese dell'ultima
+   sessione di mercato chiusa.
 
-5. Import asta.
+   Esempio:
+   - se l'ultima sessione chiusa e' quella estiva, il contesto default resta
+     `sessione estiva <stagione> - Settembre`;
+   - se l'ultima sessione chiusa e' quella invernale, il contesto default resta
+     `sessione invernale <stagione> - Febbraio`.
+
+3. Chiusura stagione.
+   La chiusura finale marca soltanto la stagione come `chiusa`; non blocca
+   automaticamente ogni modifica.
+
+4. Import asta.
    Nel primo step viene mantenuto il redirect al tab `Mercato`; in futuro il
    flusso andra' probabilmente portato dentro `Stagioni`.

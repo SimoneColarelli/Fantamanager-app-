@@ -17,12 +17,25 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Engine
 
-from models import Fantasquadra, Giocatore, Operazione, operazione_giocatori
+from models import (
+    Fantasquadra,
+    Giocatore,
+    Operazione,
+    Stagione,
+    StagioneFase,
+    StagioneFile,
+    StagioneStepLog,
+    operazione_giocatori,
+)
 
 
 FANTASQUADRE_TABLE = Fantasquadra.__table__
 GIOCATORI_TABLE = Giocatore.__table__
 OPERAZIONI_TABLE = Operazione.__table__
+STAGIONI_TABLE = Stagione.__table__
+STAGIONE_FASI_TABLE = StagioneFase.__table__
+STAGIONE_FILES_TABLE = StagioneFile.__table__
+STAGIONE_STEP_LOG_TABLE = StagioneStepLog.__table__
 SYNC_METADATA = MetaData()
 ENTITY_VERSIONS_TABLE = Table(
     "entity_versions",
@@ -55,6 +68,10 @@ SEMANTIC_UNDO_LOG_TABLE = Table(
 )
 
 INSERT_ORDER = (
+    STAGIONI_TABLE,
+    STAGIONE_FASI_TABLE,
+    STAGIONE_FILES_TABLE,
+    STAGIONE_STEP_LOG_TABLE,
     FANTASQUADRE_TABLE,
     GIOCATORI_TABLE,
     OPERAZIONI_TABLE,
@@ -70,12 +87,20 @@ DELETE_ORDER = (
     OPERAZIONI_TABLE,
     GIOCATORI_TABLE,
     FANTASQUADRE_TABLE,
+    STAGIONE_STEP_LOG_TABLE,
+    STAGIONE_FILES_TABLE,
+    STAGIONE_FASI_TABLE,
+    STAGIONI_TABLE,
 )
 
 IDENTITY_TABLES = (
     FANTASQUADRE_TABLE,
     GIOCATORI_TABLE,
     OPERAZIONI_TABLE,
+    STAGIONI_TABLE,
+    STAGIONE_FASI_TABLE,
+    STAGIONE_FILES_TABLE,
+    STAGIONE_STEP_LOG_TABLE,
     SEMANTIC_UNDO_LOG_TABLE,
 )
 

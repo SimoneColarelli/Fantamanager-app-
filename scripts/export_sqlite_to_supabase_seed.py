@@ -9,6 +9,54 @@ from typing import Iterable
 
 
 TABLE_COLUMNS = {
+    "stagioni": (
+        "id",
+        "codice",
+        "anno_inizio",
+        "anno_fine",
+        "data_inizio",
+        "data_fine",
+        "stato",
+        "fase_corrente",
+        "storage_path",
+        "created_at",
+        "updated_at",
+        "deleted",
+    ),
+    "stagione_fasi": (
+        "id",
+        "stagione_id",
+        "codice_fase",
+        "nome",
+        "data_inizio",
+        "data_fine",
+        "stato",
+        "asta_data_inizio",
+        "asta_data_fine",
+        "created_at",
+        "updated_at",
+    ),
+    "stagione_files": (
+        "id",
+        "stagione_id",
+        "fase_id",
+        "tipo_file",
+        "nome_logico",
+        "path",
+        "created_at",
+        "note",
+    ),
+    "stagione_step_log": (
+        "id",
+        "stagione_id",
+        "fase_id",
+        "step_key",
+        "status",
+        "started_at",
+        "completed_at",
+        "error_message",
+        "metadata_json",
+    ),
     "fantasquadre": (
         "id",
         "nome",
@@ -81,6 +129,7 @@ TABLE_COLUMNS = {
 }
 
 BOOLEAN_COLUMNS = {
+    ("stagioni", "deleted"),
     ("fantasquadre", "deleted"),
     ("giocatori", "convocato"),
     ("giocatori", "in_serie_a"),
@@ -88,6 +137,17 @@ BOOLEAN_COLUMNS = {
 }
 
 NUMERIC_COLUMNS = {
+    ("stagioni", "id"),
+    ("stagioni", "anno_inizio"),
+    ("stagioni", "anno_fine"),
+    ("stagione_fasi", "id"),
+    ("stagione_fasi", "stagione_id"),
+    ("stagione_files", "id"),
+    ("stagione_files", "stagione_id"),
+    ("stagione_files", "fase_id"),
+    ("stagione_step_log", "id"),
+    ("stagione_step_log", "stagione_id"),
+    ("stagione_step_log", "fase_id"),
     ("fantasquadre", "id"),
     ("fantasquadre", "fm"),
     ("fantasquadre", "campionati"),
@@ -115,7 +175,16 @@ NUMERIC_COLUMNS = {
     ("semantic_undo_log", "entity_id"),
 }
 
-SEQUENCE_TABLES = ("fantasquadre", "giocatori", "operazioni", "semantic_undo_log")
+SEQUENCE_TABLES = (
+    "stagioni",
+    "stagione_fasi",
+    "stagione_files",
+    "stagione_step_log",
+    "fantasquadre",
+    "giocatori",
+    "operazioni",
+    "semantic_undo_log",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -273,7 +342,11 @@ def build_seed(
                 "    public.operazione_giocatori,",
                 "    public.operazioni,",
                 "    public.giocatori,",
-                "    public.fantasquadre",
+                "    public.fantasquadre,",
+                "    public.stagione_step_log,",
+                "    public.stagione_files,",
+                "    public.stagione_fasi,",
+                "    public.stagioni",
                 "restart identity cascade;",
                 "",
             ]
